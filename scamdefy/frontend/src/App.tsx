@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { Dashboard }   from './screens/Dashboard';
-import { WebThreats }  from './screens/WebThreats';
-import { CallLogs }    from './screens/CallLogs';
-import { Settings }    from './screens/Settings';
-import { BottomNav }   from './components/BottomNav';
+import { Dashboard } from './screens/Dashboard';
+import { WebThreats } from './screens/WebThreats';
+import { CallLogs } from './screens/CallLogs';
+import { Settings } from './screens/Settings';
+import { BottomNav } from './components/BottomNav';
 import { ToastContainer } from './components/ui/Toast';
 
 type Screen = 'dashboard' | 'webthreats' | 'calllogs' | 'settings';
@@ -13,11 +13,11 @@ export default function App() {
 
   const renderScreen = () => {
     switch (screen) {
-      case 'dashboard':  return <Dashboard />;
+      case 'dashboard': return <Dashboard />;
       case 'webthreats': return <WebThreats />;
-      case 'calllogs':   return <CallLogs />;
-      case 'settings':   return <Settings />;
-      default:           return <Dashboard />;
+      case 'calllogs': return <CallLogs />;
+      case 'settings': return <Settings />;
+      default: return <Dashboard />;
     }
   };
 
