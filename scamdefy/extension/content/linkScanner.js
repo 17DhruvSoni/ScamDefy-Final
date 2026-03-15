@@ -29,7 +29,7 @@ async function checkCurrentPage() {
         console.warn("[ScamDefy] Malicious page detected on-load:", url);
         // Only redirect if we haven't already
         if (!window.location.href.includes('warning.html')) {
-           window.location.href = chrome.runtime.getURL(`ui/warning.html?url=${encodeURIComponent(url)}`);
+          window.location.href = chrome.runtime.getURL(`ui/warning.html?url=${encodeURIComponent(url)}`);
         }
       }
     }
@@ -38,7 +38,7 @@ async function checkCurrentPage() {
 
 function initScanner() {
   scanDOM(document.body);
-  
+
   // Set up MutationObserver to catch dynamically added links
   const observer = new MutationObserver((mutations) => {
     let newLinksFound = false;
@@ -58,10 +58,10 @@ function initScanner() {
         }
       });
     });
-    
+
     if (newLinksFound) processQueue();
   });
-  
+
   observer.observe(document.body, { childList: true, subtree: true });
 }
 
@@ -73,14 +73,14 @@ function scanDOM(rootNode) {
 
 function queueLink(aTag) {
   if (!aTag.href) return;
-  
+
   const href = aTag.href.trim();
-  
+
   // Skip invalid/internal
   if (
-    href.startsWith('mailto:') || 
-    href.startsWith('tel:') || 
-    href.startsWith('javascript:') || 
+    href.startsWith('mailto:') ||
+    href.startsWith('tel:') ||
+    href.startsWith('javascript:') ||
     href.startsWith('#') ||
     href === '' ||
     aTag.hostname === window.location.hostname // skip primary same-origin logic optionally, but instructions say scan all. Let's scan all except internal page anchors.
@@ -99,14 +99,14 @@ function queueLink(aTag) {
 async function processQueue() {
   if (isProcessing || linkQueue.length === 0) return;
   isProcessing = true;
-  
+
   const batch = linkQueue.splice(0, BATCH_SIZE);
-  
+
   // Send SCAN_URL messages in parallel
   const promises = batch.map(aTag => {
     const href = aTag.href;
     processedLinks.add(href); // mark as sent
-    
+
     return new Promise((resolve) => {
       chrome.runtime.sendMessage({ type: 'SCAN_URL', payload: { url: href } }, (response) => {
         if (chrome.runtime.lastError) {
@@ -120,12 +120,12 @@ async function processQueue() {
       });
     });
   });
-  
+
   const results = await Promise.all(promises);
   results.forEach(({ aTag, result }) => {
     if (result) applyStyles(aTag, result);
   });
-  
+
   isProcessing = false;
   if (linkQueue.length > 0) {
     processQueue();
@@ -134,14 +134,14 @@ async function processQueue() {
 
 function applyStyles(aTag, result) {
   if (!result) return;
-  
+
   aTag.style.transition = 'all 0.3s ease';
-  
+
   // Save result on element for hoverPreview
   aTag.dataset.scamdefyScore = result.score;
   aTag.dataset.scamdefyVerdict = result.verdict;
   if (result.flags && result.flags.length > 0) {
-     aTag.dataset.scamdefyFlags = result.flags.join(', ');
+    aTag.dataset.scamdefyFlags = result.flags.join(', ');
   }
 
   if (result.verdict === "BLOCKED") {

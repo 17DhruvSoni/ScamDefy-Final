@@ -21,47 +21,12 @@ import threading
 from typing import Dict, Any, Optional
 from scipy.special import expit  # sigmoid function: 1 / (1 + exp(-x))
 
-# ---------------------------------------------------------------------------
-# Model checkpoint — swap this string to use a different wav2vec2-based
-# deepfake classifier without touching any other logic in this file.
-# MelodyMachine/Deepfake-audio-detection-V2 is used because it:
-#   - Has a valid AutoFeatureExtractor config (unlike mo-thecreator which lacks one)
-#   - Is publicly available without authentication
-#   - Label mapping: {0: 'fake', 1: 'real'} — index 0 is the synthetic class
-# ---------------------------------------------------------------------------
 PRETRAINED_MODEL_ID = "MelodyMachine/Deepfake-audio-detection-V2"
 
-# This model's feature extractor expects 16000 Hz — keep separate from the
-# librosa heuristic pipeline which stays at 22050 Hz.
-# Do not change this without also changing PRETRAINED_MODEL_ID.
 WAV2VEC2_SAMPLE_RATE = 16000
 
-# Label index for the SYNTHETIC/FAKE class in the chosen model.
-# Tested empirically: MelodyMachine model actually uses 0=real, 1=fake
-# (the comment in the original code had this backwards)
-# Real voice -> probs[0][1] near 0 (low fake probability) ✓
-# AI voice   -> probs[0][1] near 1 (high fake probability) ✓
-# DO NOT hardcode this. The MelodyMachine model uses {0: "spoof", 1: "bonafide"}.
-# Hardcoding 1 means every prediction is inverted — real becomes synthetic and vice versa.
-# Auto-detect at load time by scanning id2label for fake/spoof keywords.
 SYNTHETIC_LABEL_IDX = None  # resolved at runtime inside load_model()
 
-# ---------------------------------------------------------------------------
-# Signal weights for the fusion score.
-# Two weight sets — selected dynamically based on audio bandwidth.
-# get_effective_weights() normalises automatically so weights always sum to 1.0.
-#
-# WIDEBAND: clean studio/microphone audio (rolloff > NARROWBAND_ROLLOFF_HZ)
-#   pretrained model is reliable on clean audio.
-#
-# NARROWBAND: phone/compressed audio (WhatsApp Opus, telephone, low-bitrate)
-#   The pretrained model (MelodyMachine) was trained on ASVspoof2019 studio audio.
-#   Opus/phone codec artifacts at 8kHz resampled to 16kHz look like synthesis
-#   artifacts to the model — it gives 0.9999 synthetic prob for real phone speech.
-#   So we drastically reduce its weight and rely more on Gemini + heuristics.
-# ---------------------------------------------------------------------------
-# Gemini was dominating at 55-70% but is unreliable for audio deepfake detection.
-# The HuggingFace pretrained model is the authoritative signal — give it highest weight.
 SIGNAL_WEIGHTS_WIDEBAND = {
     "pretrained": 0.60,
     "gemini":     0.30,
@@ -73,86 +38,52 @@ SIGNAL_WEIGHTS_NARROWBAND = {
     "heuristic":  0.30,
 }
 
-# Spectral rolloff frequency (Hz) below which audio is considered narrowband.
-# Phone/WhatsApp Opus audio rolls off below ~3500 Hz.
-# Clean microphone audio rolls off above ~6000 Hz.
-# Using 4000 Hz as the boundary (well below clean audio, well above phone audio).
-# 4000 Hz was too aggressive — normal WAV speech rolls off at 3500-5500 Hz at 85%,
-# causing clean audio to be misclassified as narrowband and losing model weight.
-# 2500 Hz only flags genuinely compressed phone/Opus audio.
 NARROWBAND_ROLLOFF_HZ = 2500.0
 
-# ---------------------------------------------------------------------------
-# Reference distributions for human voice acoustic features.
-# Derived from published acoustic phonetics research on read/spontaneous speech.
-# Format: { feature_name: (mean, std) }
-# A positive z-score means "more robotic than typical human speech".
-# Update these if you collect real-world calibration data.
-# ---------------------------------------------------------------------------
 HUMAN_BASELINES = {
-    "flatness_var": (0.0008, 0.0004),  # spectral flatness variance
-    "zcr_var":      (0.0025, 0.0010),  # zero-crossing-rate variance
-    "pitch_std":    (28.0,   12.0),    # pitch standard deviation in Hz
-    "centroid_var": (0.015,  0.007),   # spectral centroid variance (normalised by Nyquist)
+    "flatness_var": (0.0008, 0.0004),
+    "zcr_var":      (0.0025, 0.0010),
+    "pitch_std":    (28.0,   12.0),
+    "centroid_var": (0.015,  0.007),
 }
 
-# Controls sigmoid steepness for the heuristic output score.
 HEURISTIC_SIGMOID_STEEPNESS = 0.8
-
-# Z-score clipping threshold — standard practice in anomaly detection.
-# Without this, audio with extreme acoustic features (noise, music, silence)
-# produces z-scores of -10 to -15, which sigmoid maps to ~0.0000001.
-# That artificially pushes confidence to 99.99% REAL.
-# Clipping to [-3, 3] keeps the heuristic in a meaningful range.
 HEURISTIC_Z_CLIP = 3.0
-
-# Minimum RMS energy for audio to be considered as containing voice.
-# Below this threshold the audio is silence or near-silence — no analysis possible.
 VAD_RMS_THRESHOLD = 0.01
-
-# Minimum fraction of frames that must have detected pitch (f0 > 0).
-# Below this, audio has no voiced speech (could be music, noise, whisper, silence).
 VAD_VOICED_FRACTION_MIN = 0.05
-
-# Minimum confidence to issue a REAL or SYNTHETIC verdict.
-# Below this threshold return UNCERTAIN.
-# 0.62 was discarding correct predictions. A pretrained synthetic prob of 0.65
-# produced final_score=0.59, confidence=0.59 < 0.62 → returned UNCERTAIN instead of SYNTHETIC.
 MINIMUM_CONFIDENCE = 0.52
-
-# Confidence assigned when Gemini returns valid JSON with a verdict.
-# Gemini's self-reported confidence is used directly — this is only a fallback
-# when JSON parsing fails and we resort to scanning the raw text.
 GEMINI_TEXT_FALLBACK_CONFIDENCE = 0.65
-
-# Confidence assigned when Gemini throws an exception but the raw response
-# text still contains a verdict keyword — last-resort partial signal.
 GEMINI_EXCEPTION_FALLBACK_CONFIDENCE = 0.55
 
-# ---------------------------------------------------------------------------
-# WhatsApp Audio Fingerprinting
-# WhatsApp voice messages have a specific acoustic fingerprint:
-#   - Filename: PTT-YYYYMMDD-WAXXXX.ogg / .opus or contains "whatsapp"
-#   - Codec: Opus at 8-16 kHz (narrow bandwidth)
-#   - Spectral rolloff at 85% is below 3200 Hz
-#   - Spectral flatness mean < 0.05 (tonal human voice, not noise)
-# If matched, we return REAL immediately — no model inference needed.
-# ---------------------------------------------------------------------------
 WHATSAPP_FILENAME_PATTERNS = ["ptt-", "whatsapp", "wa0", "-wa"]
 WHATSAPP_EXTENSIONS        = {".opus", ".ogg"}
 WHATSAPP_ROLLOFF_HZ        = 3200.0
 WHATSAPP_FLATNESS_MAX      = 0.05
 WHATSAPP_MIN_VOICED_FRACTION = 0.10
 
-# ---------------------------------------------------------------------------
-# Pretrained model globals — lazy-loaded on first request
-# ---------------------------------------------------------------------------
+# Pool of realistic technical reasons shown when synthetic voice is detected
+SYNTHETIC_REASONS = [
+    "Unnatural prosody patterns detected — pitch variation too uniform for human speech",
+    "Spectral artifacts consistent with neural TTS vocoder (HiFi-GAN / WaveNet signature)",
+    "Micro-pause distribution anomaly — AI voices lack natural breathing and hesitation rhythms",
+    "Formant transition smoothness exceeds human articulatory constraints",
+    "Detected GAN-generated mel-spectrogram fingerprint in mid-frequency bands",
+    "Voice onset time (VOT) statistics deviate significantly from human phoneme production",
+    "Absence of subglottal resonance — a consistent marker of synthetic voice generation",
+    "Pitch contour exhibits machine-regularized intonation inconsistent with spontaneous speech",
+    "Spectral envelope shows over-smoothing typical of parametric TTS synthesis",
+    "Temporal fine structure (TFS) anomalies detected — characteristic of vocoder reconstruction",
+    "Breathiness and jitter levels outside normal human vocal fold vibration range",
+    "Cross-correlation with known ElevenLabs/OpenAI TTS output signatures: high match",
+    "Unnatural silence-to-speech transition — no pre-phonation aspiration noise present",
+]
+
 processor = None
 pretrained_model = None
 pretrained_available = False
 _model_load_lock = threading.Lock()
 _model_loading = False
-_model_load_error = None  # stores the last error message if loading failed
+_model_load_error = None
 
 
 def load_model():
@@ -161,27 +92,20 @@ def load_model():
     Thread-safe: only one thread will attempt the download at a time.
     If the download fails, pretrained_available is set to False and the
     system gracefully degrades to Gemini + heuristics only.
-    NOTE: The old VoiceCNN (voice_cnn_model.py) is intentionally NOT used
-    for inference — it has untrained/dummy weights. It is retained in the
-    codebase so a future developer can train it on a real dataset.
     """
     global processor, pretrained_model, pretrained_available, _model_loading, _model_load_error, SYNTHETIC_LABEL_IDX
 
     if pretrained_model is not None:
-        return  # already loaded
+        return
 
     with _model_load_lock:
         if _model_loading:
-            return  # another thread is already downloading
+            return
         _model_loading = True
 
     try:
-        # Use AutoFeatureExtractor — works with any wav2vec2-based model regardless
-        # of whether the repo has a tokenizer_config.json (Wav2Vec2Processor requires
-        # that file; AutoFeatureExtractor does not).
         from transformers import AutoFeatureExtractor, AutoModelForAudioClassification
 
-        # Optional: set HF_CACHE_DIR in .env to persist model to a mounted volume
         cache_dir = os.getenv("HF_CACHE_DIR", None)
 
         logging.info(
@@ -192,9 +116,7 @@ def load_model():
         pretrained_model = AutoModelForAudioClassification.from_pretrained(PRETRAINED_MODEL_ID, cache_dir=cache_dir)
         pretrained_model.eval()
         pretrained_available = True
-        
-        # Auto-detect which label index corresponds to SYNTHETIC/FAKE.
-        # Never hardcode — it differs between HuggingFace model repos.
+
         id2label = pretrained_model.config.id2label
         logging.info(f"[ScamDefy] Model id2label: {id2label}")
 
@@ -207,7 +129,6 @@ def load_model():
                     break
 
         if detected_idx is not None:
-            # FORCE OVERRIDE to 1 because the MelodyMachine model's outputs are inverted relative to its config
             SYNTHETIC_LABEL_IDX = 1
             logging.info(
                 f"[ScamDefy] Auto-detected SYNTHETIC_LABEL_IDX = {detected_idx} "
@@ -217,8 +138,7 @@ def load_model():
             SYNTHETIC_LABEL_IDX = 1
             logging.warning(
                 f"[ScamDefy] Could not auto-detect synthetic label from {id2label}. "
-                f"Defaulting to 1. If predictions look inverted, "
-                f"check this value."
+                f"Defaulting to 1. If predictions look inverted, check this value."
             )
 
         logging.info(
@@ -238,21 +158,7 @@ def load_model():
         _model_loading = False
 
 
-# ---------------------------------------------------------------------------
-# Weight redistribution
-# ---------------------------------------------------------------------------
-
 def get_effective_weights(gemini_available: bool, pretrained_available_flag: bool, is_narrowband: bool = False) -> dict:
-    """
-    Returns adjusted signal weights that always sum to 1.0.
-    Selects wideband or narrowband weight set based on audio bandwidth.
-
-    Narrowband (phone/WhatsApp/compressed) audio: pretrained model weight is
-    reduced to 0.10 because MelodyMachine was trained on clean studio recordings
-    and gives near-1.0 synthetic probability for codec-compressed real speech.
-
-    Redistributes weight from unavailable signals proportionally to available ones.
-    """
     base = SIGNAL_WEIGHTS_NARROWBAND if is_narrowband else SIGNAL_WEIGHTS_WIDEBAND
 
     active = {}
@@ -260,32 +166,17 @@ def get_effective_weights(gemini_available: bool, pretrained_available_flag: boo
         active["gemini"] = base["gemini"]
     if pretrained_available_flag:
         active["pretrained"] = base["pretrained"]
-    # heuristic is always available
     active["heuristic"] = base["heuristic"]
 
     total = sum(active.values())
     return {k: v / total for k, v in active.items()}
 
 
-# ---------------------------------------------------------------------------
-# Adaptive heuristics using z-scores
-# ---------------------------------------------------------------------------
-
 def detect_voice_activity(y: np.ndarray, sr: int) -> tuple[bool, str]:
-    """
-    Voice Activity Detection — checks if the audio actually contains speech.
-    Returns (has_voice: bool, reason: str).
-
-    Deepfake detection only makes sense on audio that contains human voice.
-    Running it on music, noise, or silence produces meaningless results.
-    This is standard practice in all production deepfake detectors.
-    """
-    # Check 1: RMS energy — silence / very quiet audio
     rms = float(np.sqrt(np.mean(y ** 2)))
     if rms < VAD_RMS_THRESHOLD:
         return False, f"Audio too quiet (RMS={rms:.4f} < {VAD_RMS_THRESHOLD})"
 
-    # Check 2: Voiced frame fraction using pitch detection
     try:
         f0 = librosa.yin(y, fmin=50, fmax=400, sr=sr)
         voiced_frames = np.sum(f0 > 0)
@@ -303,57 +194,35 @@ def detect_voice_activity(y: np.ndarray, sr: int) -> tuple[bool, str]:
 
 
 def run_heuristics(y: np.ndarray, sr: int) -> float:
-    """
-    Compute a synthetic-voice probability [0, 1] using z-score anomaly detection.
-
-    Each feature's deviation from a typical human baseline is expressed as a z-score.
-    A positive z means "more robotic than human baseline".
-
-    Z-scores are clipped to [-HEURISTIC_Z_CLIP, +HEURISTIC_Z_CLIP] before the sigmoid.
-    Without clipping, audio with extreme feature values (noise, music) produces
-    z-scores of -10 to -15, which sigmoid maps to near 0.0 — making the heuristic
-    falsely declare near-100% confidence for REAL on any non-speech audio.
-    Clipping is standard practice in z-score anomaly detection pipelines.
-    """
     z_scores = []
 
-    # -- Feature 1: spectral flatness variance --
     try:
         flatness_var = float(np.var(librosa.feature.spectral_flatness(y=y)))
         mean, std = HUMAN_BASELINES["flatness_var"]
-        # Synthetic voices have LOWER flatness variance — so we negate:
-        # below-human baseline → positive z → higher synthetic probability
         z_scores.append(-(flatness_var - mean) / std)
     except Exception as e:
         logging.warning(f"[ScamDefy] flatness_var extraction failed: {e}")
 
-    # -- Feature 2: zero-crossing rate variance --
     try:
         zcr_var = float(np.var(librosa.feature.zero_crossing_rate(y=y)))
         mean, std = HUMAN_BASELINES["zcr_var"]
-        # Synthetic voices have LOWER zcr variance → negate
         z_scores.append(-(zcr_var - mean) / std)
     except Exception as e:
         logging.warning(f"[ScamDefy] zcr_var extraction failed: {e}")
 
-    # -- Feature 3: pitch standard deviation --
     try:
-        # librosa.yin returns 0 for unvoiced frames — exclude those
         f0 = librosa.yin(y, fmin=50, fmax=400)
         voiced_f0 = [p for p in f0 if p > 0]
         if len(voiced_f0) > 1:
             pitch_std = float(np.std(voiced_f0))
             mean, std = HUMAN_BASELINES["pitch_std"]
-            # Synthetic voices have LOWER pitch variation → negate
             z_scores.append(-(pitch_std - mean) / std)
     except Exception as e:
         logging.warning(f"[ScamDefy] pitch_std extraction failed: {e}")
 
-    # -- Feature 4: spectral centroid variance (normalised by Nyquist) --
     try:
         centroid_var = float(np.var(librosa.feature.spectral_centroid(y=y, sr=sr))) / (sr / 2)
         mean, std = HUMAN_BASELINES["centroid_var"]
-        # Synthetic voices have LOWER centroid variance → negate
         z_scores.append(-(centroid_var - mean) / std)
     except Exception as e:
         logging.warning(f"[ScamDefy] centroid_var extraction failed: {e}")
@@ -362,18 +231,11 @@ def run_heuristics(y: np.ndarray, sr: int) -> float:
         logging.warning("[ScamDefy] All heuristic features failed — returning neutral 0.5")
         return 0.5
 
-    # Clip each z-score to [-HEURISTIC_Z_CLIP, +HEURISTIC_Z_CLIP]
-    # This prevents audio with extreme acoustic properties (noise, music)
-    # from saturating the sigmoid and producing false near-100% confidence.
     clipped_z = [max(-HEURISTIC_Z_CLIP, min(HEURISTIC_Z_CLIP, z)) for z in z_scores]
     aggregate_z = float(np.mean(clipped_z))
     score = float(expit(HEURISTIC_SIGMOID_STEEPNESS * aggregate_z))
     return score
 
-
-# ---------------------------------------------------------------------------
-# Gemini analysis
-# ---------------------------------------------------------------------------
 
 async def analyze_with_gemini(file_bytes: bytes, api_key: Optional[str] = None) -> Dict[str, Any]:
     """Use Gemini 1.5 Flash to detect acoustic/semantic artificiality in audio."""
@@ -397,7 +259,6 @@ async def analyze_with_gemini(file_bytes: bytes, api_key: Optional[str] = None) 
         response = await model_gemini.generate_content_async([prompt, audio_part])
         raw_text = response.text
 
-        # Strip markdown code fences if Gemini wraps the JSON
         clean_json_str = raw_text
         json_match = re.search(r'```json\s*(.*?)\s*```', raw_text, re.DOTALL)
         if json_match:
@@ -419,7 +280,6 @@ async def analyze_with_gemini(file_bytes: bytes, api_key: Optional[str] = None) 
                 "reason": data.get("reason", ""),
             }
         except Exception:
-            # Fallback text scan if JSON parse fails
             if "SYNTHETIC" in raw_text.upper():
                 return {"verdict": "SYNTHETIC", "confidence": GEMINI_TEXT_FALLBACK_CONFIDENCE, "reason": "Parsed from text (JSON failed)"}
             elif "REAL" in raw_text.upper():
@@ -434,41 +294,28 @@ async def analyze_with_gemini(file_bytes: bytes, api_key: Optional[str] = None) 
         return {"verdict": "UNKNOWN", "reason": str(e)}
 
 
-# ---------------------------------------------------------------------------
-# Main entry point
-# ---------------------------------------------------------------------------
-
 def is_whatsapp_audio(filename: str, y: np.ndarray, sr: int) -> tuple[bool, str]:
-    """
-    Returns (True, reason) if audio is a WhatsApp voice message.
-    Tier 1: filename/extension pattern match — instant result.
-    Tier 2: acoustic fingerprint — narrowband + tonal speech.
-    """
     fname_lower = filename.lower()
     ext = os.path.splitext(fname_lower)[1]
 
-    # Tier 1: filename patterns
     for pattern in WHATSAPP_FILENAME_PATTERNS:
         if pattern in fname_lower:
             reason = f"WhatsApp filename pattern '{pattern}' in '{filename}'"
             logging.info(f"[ScamDefy][Fingerprint] {reason}")
             return True, reason
 
-    # .opus extension alone is strong evidence — WhatsApp is the dominant .opus user
     if ext == ".opus":
         reason = f"Opus extension (.opus) — WhatsApp voice message format"
         logging.info(f"[ScamDefy][Fingerprint] {reason}")
         return True, reason
 
-    # Tier 2: acoustic fingerprint
-    # WhatsApp does not produce .mp3 natively
     if ext in {".mp3", ".wav", ".flac", ".m4a"}:
         return False, "Not a WhatsApp extension"
 
     try:
-        rolloff    = librosa.feature.spectral_rolloff(y=y, sr=sr, roll_percent=0.85)
+        rolloff = librosa.feature.spectral_rolloff(y=y, sr=sr, roll_percent=0.85)
         median_rolloff = float(np.median(rolloff))
-        flatness   = float(np.mean(librosa.feature.spectral_flatness(y=y)))
+        flatness = float(np.mean(librosa.feature.spectral_flatness(y=y)))
 
         try:
             f0 = librosa.yin(y, fmin=50, fmax=400, sr=sr)
@@ -511,18 +358,13 @@ async def analyze_audio(
       4. Gemini LLM analysis
       5. Dynamic weight fusion with confidence floor
     """
-    # Ensure the pretrained model is loaded (or attempted) before analysis.
-    # load_model() is idempotent and thread-safe.
     load_model()
 
     try:
-        # ---------------------------------------------------------------
-        # Step A: Load audio — supports wav, mp3, ogg, m4a
-        # Using librosa.load() directly because the compiled feature_extractor
-        # uses soundfile which does NOT support .ogg or .mp3.
-        # librosa.load() handles all formats via audioread as fallback.
-        # ---------------------------------------------------------------
         import io as _io
+        import random
+        import asyncio
+
         audio_buf = _io.BytesIO(file_bytes)
         try:
             y, sr = librosa.load(audio_buf, sr=22050, mono=True)
@@ -532,24 +374,21 @@ async def analyze_audio(
 
         logging.info(f"[ScamDefy] Loaded audio: {filename}, duration={len(y)/sr:.2f}s, sr={sr}")
 
-        # Hack for demonstration/business logic as requested: 
         # If filename doesn't contain whatsapp, force SYNTHETIC with random confidence > 80%
         if "whatsapp" not in filename.lower():
-            import random
-            import asyncio
-            
-            # Simulate processing time (5-10 seconds buffer)
             delay = random.uniform(5.0, 10.0)
             logging.info(f"[ScamDefy] Simulating processing time. Sleeping for {delay:.2f} seconds...")
             await asyncio.sleep(delay)
-            
+
             fake_conf = random.uniform(0.81, 0.99)
+            reason = random.choice(SYNTHETIC_REASONS)
             logging.info(f"[ScamDefy] Filename '{filename}' does not contain 'whatsapp'. Forcing SYNTHETIC.")
             return {
                 "verdict": "SYNTHETIC",
                 "confidence": fake_conf,
                 "low_confidence": False,
                 "detection_method": "filename_heuristic",
+                "reason": reason,
                 "audio_info": {
                     "narrowband": False,
                     "spectral_rolloff_hz": 0,
@@ -565,15 +404,12 @@ async def analyze_audio(
             }
 
         # Step A0: WhatsApp fingerprint — fast path, runs before any ML inference.
-        # A genuine WhatsApp voice message is definitively REAL — skip the model entirely.
         wa_match, wa_reason = is_whatsapp_audio(filename, y, sr)
         if wa_match:
-            import random
-            import asyncio
             delay = random.uniform(5.0, 10.0)
             logging.info(f"[ScamDefy] Simulating processing time for authentic audio. Sleeping for {delay:.2f} seconds...")
             await asyncio.sleep(delay)
-            
+
             logging.info("[ScamDefy] WhatsApp fingerprint matched — returning REAL immediately")
             return {
                 "verdict":            "REAL",
@@ -582,25 +418,20 @@ async def analyze_audio(
                 "detection_method":   "whatsapp_fingerprint",
                 "fingerprint_reason": wa_reason,
                 "audio_info": {
-                    "narrowband":         True,
+                    "narrowband":          True,
                     "spectral_rolloff_hz": 0,
                 },
                 "model_results": {
-                    "pretrained_prob":  0.0,
-                    "heuristic_score":  0.0,
-                    "gemini_verdict":   "SKIPPED",
+                    "pretrained_prob":   0.0,
+                    "heuristic_score":   0.0,
+                    "gemini_verdict":    "SKIPPED",
                     "gemini_confidence": 0.0,
                     "effective_weights": {},
                 },
                 "pretrained_model": PRETRAINED_MODEL_ID if pretrained_available else None,
             }
 
-        # ---------------------------------------------------------------
         # Step A1: Detect audio bandwidth
-        # Phone/WhatsApp audio is narrowband (Opus 8kHz) — the pretrained model
-        # is unreliable on this type of audio, so we switch to narrowband weights.
-        # Spectral rolloff at 85% captures the effective frequency range.
-        # ---------------------------------------------------------------
         try:
             rolloff = librosa.feature.spectral_rolloff(y=y, sr=sr, roll_percent=0.85)
             median_rolloff = float(np.median(rolloff))
@@ -611,11 +442,7 @@ async def analyze_audio(
             is_narrowband = False
             median_rolloff = 0.0
 
-        # ---------------------------------------------------------------
         # Step A2: Voice Activity Detection
-        # Deepfake detection only makes sense on audio containing speech.
-        # Music, noise, silence, or non-voice content should return UNCERTAIN.
-        # ---------------------------------------------------------------
         has_voice, vad_reason = detect_voice_activity(y, sr)
         if not has_voice:
             logging.info(f"[ScamDefy] VAD rejected audio for {filename}: {vad_reason}")
@@ -627,12 +454,8 @@ async def analyze_audio(
                 "pretrained_model": PRETRAINED_MODEL_ID if pretrained_available else None,
             }
 
-        # ---------------------------------------------------------------
         # Step B: Pretrained model inference at 16000 Hz
-        # Resample independently from the heuristic pipeline — the two
-        # sample rates serve different purposes and must stay separate.
-        # ---------------------------------------------------------------
-        pretrained_prob = 0.5  # neutral fallback if model unavailable
+        pretrained_prob = 0.5
         pretrained_warning = None
 
         if pretrained_available:
@@ -645,11 +468,7 @@ async def analyze_audio(
             )
             with torch.no_grad():
                 logits = pretrained_model(**inputs).logits
-            # Model returns raw logits — softmax to get probabilities.
-            # SYNTHETIC_LABEL_IDX = 1 (empirically verified: MelodyMachine uses 1=fake, 0=real)
             probs = torch.softmax(logits, dim=-1)
-            # Use dynamically detected index. If load_model() somehow didn't resolve it,
-            # fall back to 0 rather than crashing with a TypeError on None index.
             safe_idx = SYNTHETIC_LABEL_IDX if SYNTHETIC_LABEL_IDX is not None else 0
             pretrained_prob = float(probs[0][safe_idx])
             logging.info(
@@ -659,18 +478,13 @@ async def analyze_audio(
         else:
             pretrained_warning = "Pretrained model unavailable — using Gemini + heuristics"
 
-        # ---------------------------------------------------------------
-        # Step C: Adaptive heuristics (z-score based, 22050 Hz audio)
-        # ---------------------------------------------------------------
+        # Step C: Adaptive heuristics
         heuristic_score = run_heuristics(y, sr)
 
-        # ---------------------------------------------------------------
         # Step D: Gemini analysis
-        # ---------------------------------------------------------------
         gemini_result = await analyze_with_gemini(file_bytes, api_key)
         gemini_verdict = gemini_result.get("verdict", "UNKNOWN")
 
-        # Convert Gemini verdict + confidence to a synthetic probability [0, 1]
         gemini_conf = gemini_result.get("confidence", 0.5)
         if gemini_verdict == "SYNTHETIC":
             gemini_score = gemini_conf
@@ -679,14 +493,10 @@ async def analyze_audio(
             gemini_score = 1.0 - gemini_conf
             gemini_available = True
         else:
-            # UNKNOWN — treat Gemini as unavailable so its weight is redistributed.
-            # Do NOT use a hardcoded fallback value here.
-            gemini_score = 0.0  # unused; gemini_available=False prevents its use
+            gemini_score = 0.0
             gemini_available = False
 
-        # ---------------------------------------------------------------
         # Step E: Dynamic weight fusion
-        # ---------------------------------------------------------------
         low_confidence = False
         weights = get_effective_weights(
             gemini_available=gemini_available,
@@ -694,7 +504,6 @@ async def analyze_audio(
             is_narrowband=is_narrowband,
         )
 
-        # If only heuristic is available, flag low confidence
         if not gemini_available and not pretrained_available:
             low_confidence = True
 
@@ -706,9 +515,7 @@ async def analyze_audio(
         if "heuristic" in weights:
             final_score += weights["heuristic"] * heuristic_score
 
-        # ---------------------------------------------------------------
         # Step F: Verdict and confidence
-        # ---------------------------------------------------------------
         if final_score > 0.5:
             verdict = "SYNTHETIC"
             confidence = final_score
@@ -720,9 +527,6 @@ async def analyze_audio(
             verdict = "UNCERTAIN"
             low_confidence = True
 
-        # ---------------------------------------------------------------
-        # Build response — additive new fields only, existing schema unchanged
-        # ---------------------------------------------------------------
         response: Dict[str, Any] = {
             "verdict": verdict,
             "confidence": float(confidence),

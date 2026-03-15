@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routes import scan, voice, health
+from routes import scan, voice, health, threats
 from dotenv import load_dotenv
 import logging
 import threading
@@ -22,6 +22,7 @@ app.add_middleware(
 app.include_router(scan.router, prefix="/api")
 app.include_router(voice.router, prefix="/api")
 app.include_router(health.router, prefix="/api")
+app.include_router(threats.router, prefix="/api")
 
 @app.on_event("startup")
 async def startup():

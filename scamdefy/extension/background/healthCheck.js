@@ -13,23 +13,23 @@ export async function runAllHealthChecks() {
   try {
     const res = await fetch(`${ENV.BACKEND_URL}${ENV.HEALTH_ENDPOINT}`);
     if (res.ok) {
-        const data = await res.json();
-        // Extract GSB, PhishTank, Voice from backend health
-        results.push({ module: "Google Safe Browsing", status: data.modules.gsb_service.status, reason: data.modules.gsb_service.reason });
-        results.push({ module: "URLHaus", status: data.modules.urlhaus_service.status, reason: data.modules.urlhaus_service.reason });
-        results.push({ module: "Voice Detector", status: data.modules.voice_cnn.status, reason: data.modules.voice_cnn.reason });
-        backendRes = { module: "Backend Connection", status: "ok", reason: "Connected to " + ENV.BACKEND_URL };
+      const data = await res.json();
+      // Extract GSB, PhishTank, Voice from backend health
+      results.push({ module: "Google Safe Browsing", status: data.modules.gsb_service.status, reason: data.modules.gsb_service.reason });
+      results.push({ module: "URLHaus", status: data.modules.urlhaus_service.status, reason: data.modules.urlhaus_service.reason });
+      results.push({ module: "Voice Detector", status: data.modules.voice_cnn.status, reason: data.modules.voice_cnn.reason });
+      backendRes = { module: "Backend Connection", status: "ok", reason: "Connected to " + ENV.BACKEND_URL };
     } else {
-        backendRes.reason = `HTTP ${res.status}`;
-        // Push failures for backend modules since backend is down
-        ["Google Safe Browsing", "URLHaus", "Voice Detector"].forEach(m => {
-            results.push({ module: m, status: "fail", reason: "Backend Offline" });
-        });
+      backendRes.reason = `HTTP ${res.status}`;
+      // Push failures for backend modules since backend is down
+      ["Google Safe Browsing", "URLHaus", "Voice Detector"].forEach(m => {
+        results.push({ module: m, status: "fail", reason: "Backend Offline" });
+      });
     }
   } catch (e) {
     backendRes.reason = "Fetch failed: " + e.message;
     ["Google Safe Browsing", "URLHaus", "Voice Detector"].forEach(m => {
-        results.push({ module: m, status: "fail", reason: "Backend Offline" });
+      results.push({ module: m, status: "fail", reason: "Backend Offline" });
     });
   }
   results.push(backendRes);
@@ -72,7 +72,7 @@ export async function runAllHealthChecks() {
     chrome.action.setBadgeText({ text: "!" });
     chrome.action.setBadgeBackgroundColor({ color: "#f59e0b" }); // Yellow
   }
-  
+
   // Log failed modules
   const failed = results.filter(r => r.status !== "ok");
   if (failed.length > 0) {
