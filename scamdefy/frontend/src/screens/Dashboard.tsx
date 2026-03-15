@@ -1,168 +1,250 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useUrlScan } from '../hooks/useUrlScan';
 import { useAppStore } from '../store/appStore';
 import { getHealth, getStats } from '../api/threatService';
 import { UrlInput } from '../components/scanner/UrlInput';
-import { ScanResultCard } from '../components/scanner/ScanResultCard';
-import { ThreatCard } from '../components/threats/ThreatCard';
-import { LoadingSpinner } from '../components/ui/LoadingSpinner';
-import { SkeletonCard } from '../components/ui/SkeletonCard';
 import { ErrorBanner } from '../components/ui/ErrorBanner';
-import { HealthStatus } from '../types';
 
+// ── Particle canvas orb ──────────────────────────────────────────────────────
+function OrbCanvas({ score, verdict }: { score: number | null; verdict: string | null }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Orb glow color based on verdict
+  const orbColor =
+    verdict === 'BLOCKED' ? '#ef4444' :
+    verdict === 'DANGER'  ? '#f97316' :
+    verdict === 'CAUTION' ? '#f59e0b' : '#00f2ff';
+
+  // Orb status text
+  const statusText =
+    verdict
+      ? `THREAT_VECTOR: ${verdict}`
+      : 'Scanning... Waiting for Payload';
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const resize = () => {
+      canvas.width = canvas.offsetWidth;
+      canvas.height = canvas.offsetHeight;
+    };
+    resize();
+
+    const color = orbColor;
+    interface Particle { x: number; y: number; vx: number; vy: number; size: number; alpha: number; }
+    const particles: Particle[] = [];
+    for (let i = 0; i < 50; i++) {
+      particles.push({
+        x: Math.random() * canvas.width, y: Math.random() * canvas.height,
+        vx: (Math.random() - 0.5) * 0.5, vy: (Math.random() - 0.5) * 0.5,
+        size: Math.random() * 2, alpha: Math.random() * 0.8,
+      });
+    }
+
+    let raf: number;
+    const animate = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      particles.forEach(p => {
+        p.x += p.vx; p.y += p.vy;
+        if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
+        if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
+        const r = parseInt(color.slice(1, 3), 16);
+        const g = parseInt(color.slice(3, 5), 16);
+        const b = parseInt(color.slice(5, 7), 16);
+        ctx.fillStyle = `rgba(${r},${g},${b},${p.alpha})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      raf = requestAnimationFrame(animate);
+    };
+    animate();
+
+    window.addEventListener('resize', resize);
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', resize); };
+  }, [orbColor]);
+
+  const displayScore = score !== null ? score.toFixed(2) : '0.00';
+
+  return (
+    <div className="relative w-72 h-72 md:w-[380px] md:h-[380px] flex items-center justify-center mx-auto">
+      {/* Outer spinning ring */}
+      <div className="absolute inset-0 border border-electricCyan/20 rounded-full animate-spin-slow">
+        <div className="absolute -top-1 left-1/2 w-2 h-2 bg-electricCyan rounded-full" />
+      </div>
+      {/* Middle dashed ring */}
+      <div className="absolute inset-6 border border-dashed border-electricMagenta/30 rounded-full animate-spin-reverse-slow" />
+      {/* Inner ring */}
+      <div className="absolute inset-14 border border-electricCyan/10 rounded-full" />
+
+      {/* Orb sphere */}
+      <div
+        className="w-52 h-52 md:w-64 md:h-64 rounded-full relative overflow-hidden flex items-center justify-center animate-pulse-glow"
+        style={{
+          background: `radial-gradient(circle at 30% 30%, ${orbColor}30, transparent)`,
+          boxShadow: `0 0 40px ${orbColor}20, 0 0 80px ${orbColor}10`,
+          transition: 'box-shadow 0.5s, background 0.5s',
+        }}
+      >
+        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+        <div className="z-20 text-center px-4">
+          <p className="text-[9px] font-mono uppercase tracking-[0.5em] opacity-60 mb-2">Risk Score</p>
+          <h2
+            className="text-6xl md:text-7xl font-black leading-none transition-all duration-500"
+            style={{ color: orbColor, textShadow: `0 0 20px ${orbColor}` }}
+          >
+            {displayScore}
+          </h2>
+          <p className="mt-2 text-[9px] font-mono opacity-40 uppercase tracking-tighter">{statusText}</p>
+        </div>
+      </div>
+
+      {/* Floating data markers — update after scan */}
+      <div
+        className="absolute -top-8 -right-16 md:-right-24 glass-panel p-3 rounded-tl-2xl rounded-br-2xl border-l-2 border-electricCyan animate-float text-left"
+        style={{ minWidth: 130 }}
+      >
+        <p className="text-[9px] text-electricCyan font-mono">
+          {verdict ? `VERDICT: ${verdict}` : 'ENCRYPT_LEVEL: AES-256'}
+        </p>
+        <p className="text-[9px] opacity-60 font-mono">
+          {score !== null ? `SCORE: ${score.toFixed(1)}/100` : 'NODE_ID: 0x992B-X'}
+        </p>
+      </div>
+      <div
+        className="absolute -bottom-4 -left-16 md:-left-24 glass-panel p-3 rounded-tr-2xl rounded-bl-2xl border-r-2 border-electricMagenta animate-float-delay text-left"
+        style={{ minWidth: 130 }}
+      >
+        <p className="text-[9px] text-electricMagenta font-mono">
+          {score !== null ? `THREAT_VECTOR: ${verdict}` : 'THREAT_VECTOR: NULL'}
+        </p>
+        <p className="text-[9px] opacity-60 font-mono">ORIGIN: DECENTRALIZED</p>
+      </div>
+    </div>
+  );
+}
+
+// ── Module health cards ───────────────────────────────────────────────────────
+const MODULE_ICONS: Record<string, string> = {
+  gemini: '🤖', google_safe_browsing: '🔍', ipqualityscore: '📊',
+  virustotal: '🦠', database: '🗄️', urlhaus: '🕷️', threatfox: '🦊', voice: '🎙️',
+};
+
+// ── Dashboard screen ──────────────────────────────────────────────────────────
 export function Dashboard() {
   const { result, loading: scanLoading, error: scanError, scan } = useUrlScan();
-  const { health, setHealth, recentScans, threats, totalBlocked, todayBlocked, setStats } = useAppStore();
+  const { health, totalBlocked, todayBlocked, setStats, setHealth } = useAppStore();
   const [statsLoading, setStatsLoading] = useState(true);
-  const [statsError, setStatsError] = useState<string | null>(null);
-  const [backendAlive, setBackendAlive] = useState<boolean | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    const load = async () => {
+    (async () => {
       setStatsLoading(true);
-      setStatsError(null);
       try {
-        const [healthData, statsData] = await Promise.all([
-          getHealth(),
-          getStats(),
-        ]);
-        if (!cancelled) {
-          setHealth(healthData);
-          setStats(statsData.total_blocked, statsData.today_detected);
-          setBackendAlive(true);
-        }
-      } catch (err: any) {
-        if (!cancelled) {
-          setStatsError(err.message || 'Cannot reach backend');
-          setBackendAlive(false);
-          console.error('[ScamDefy][Dashboard]', err);
-        }
-      } finally {
-        if (!cancelled) setStatsLoading(false);
-      }
-    };
-    load();
+        const [healthData, statsData] = await Promise.all([getHealth(), getStats()]);
+        if (!cancelled) { setHealth(healthData); setStats(statsData.total_blocked, statsData.today_detected); }
+      } catch {}
+      finally { if (!cancelled) setStatsLoading(false); }
+    })();
     return () => { cancelled = true; };
   }, [setHealth, setStats]);
 
-  const MODULE_ICONS: Record<string, string> = {
-    gemini: '🤖', google_safe_browsing: '🔍', ipqualityscore: '📊',
-    virustotal: '🦠', database: '🗄️', urlhaus: '🕷️', threatfox: '🦊', voice: '🎙️',
-  };
-
   return (
-    <div className="screen-enter" style={{ padding: '52px 16px 80px', maxWidth: 430, margin: '0 auto' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 26 }}>🛡️</span>
-          <div>
-            <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0, fontFamily: 'Syne' }}>ScamDefy</h1>
-            <span style={{ fontSize: 10, color: '#475569' }}>v1.0.0</span>
+    <div className="min-h-screen flex flex-col items-center justify-start pt-8 pb-20 px-6 relative">
+
+      {/* Stats chips */}
+      <div className="flex gap-3 mb-8 flex-wrap justify-center w-full max-w-3xl">
+        {[
+          { label: "TODAY'S THREATS", value: statsLoading ? '···' : todayBlocked, color: '#f97316' },
+          { label: 'TOTAL BLOCKED',   value: statsLoading ? '···' : totalBlocked, color: '#ef4444' },
+          { label: 'SYSTEM STATUS',   value: statsLoading ? '···' : (health ? 'OPTIMAL' : 'OFFLINE'), color: health ? '#00f2ff' : '#ef4444' },
+        ].map(s => (
+          <div key={s.label} className="glass-panel rounded-full px-5 py-2 flex items-center gap-3">
+            <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: s.color, boxShadow: `0 0 6px ${s.color}` }} />
+            <span className="text-[10px] font-mono text-white/40 uppercase tracking-widest">{s.label}:</span>
+            <span className="text-sm font-black font-mono" style={{ color: s.color }}>{s.value}</span>
           </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <div style={{
-            width: 8, height: 8, borderRadius: '50%',
-            background: backendAlive === true ? '#22c55e' : backendAlive === false ? '#ef4444' : '#f59e0b',
-            animation: backendAlive === true ? 'pulse 2s infinite' : 'none',
-            boxShadow: backendAlive === true ? '0 0 6px #22c55e' : 'none',
-          }} />
-          <span style={{ fontSize: 11, color: '#94a3b8' }}>
-            {backendAlive === true ? 'Protected' : backendAlive === false ? 'Offline' : 'Checking...'}
-          </span>
-        </div>
+        ))}
       </div>
 
-      {/* Backend error */}
-      {statsError && (
-        <div style={{ marginBottom: 16 }}>
-          <ErrorBanner
-            error={{ message: `Backend unreachable: ${statsError}. Is the server running on port 8000?`, retryable: true }}
-            onRetry={() => window.location.reload()}
-          />
-        </div>
-      )}
-
-      {/* Stats Row */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 20 }}>
-        {statsLoading ? (
-          [0, 1, 2].map(i => <SkeletonCard key={i} height={70} />)
-        ) : (
-          <>
-            {[
-              { label: "Today's Threats", value: todayBlocked, color: '#f97316' },
-              { label: 'Total Blocked',   value: totalBlocked, color: '#ef4444' },
-              { label: 'Protection',      value: backendAlive ? '✓' : '✗', color: backendAlive ? '#22c55e' : '#ef4444' },
-            ].map(stat => (
-              <div key={stat.label} style={{
-                background: '#111827', border: '1px solid #1e293b', borderRadius: 10, padding: '12px 10px',
-              }}>
-                <p style={{ color: stat.color, fontSize: 22, fontWeight: 800, margin: 0, fontFamily: 'Syne' }}>
-                  {stat.value}
-                </p>
-                <p style={{ color: '#94a3b8', fontSize: 10, margin: '4px 0 0', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  {stat.label}
-                </p>
-              </div>
-            ))}
-          </>
-        )}
+      {/* Orb */}
+      <div className="mb-12">
+        <OrbCanvas score={result?.score ?? null} verdict={result?.verdict ?? null} />
       </div>
 
-      {/* Quick Scan */}
-      <div style={{ marginBottom: 16 }}>
-        <UrlInput onScan={scan} loading={scanLoading} />
-      </div>
-
-      {/* Scan error */}
+      {/* Error */}
       {scanError && (
-        <div style={{ marginBottom: 12 }}>
+        <div className="w-full max-w-2xl mb-6">
           <ErrorBanner error={scanError} />
         </div>
       )}
 
-      {/* Last Scan Result */}
-      {result && (
-        <div style={{ marginBottom: 20 }}>
-          <ScanResultCard result={result} />
+      {/* AI explanation after scan */}
+      {result?.explanation && (
+        <div className="w-full max-w-2xl mb-6 glass-panel rounded-xl p-5 border-l-2 border-electricCyan slide-up">
+          <p className="text-[9px] font-mono uppercase tracking-[0.3em] text-electricCyan mb-2">Neural Analysis</p>
+          <p className="text-sm text-white/60 leading-relaxed">{result.explanation}</p>
+          {result.scam_type && (
+            <p className="mt-2 text-[10px] font-mono text-white/30">
+              TYPE: {result.scam_type.replace(/_/g, ' ')} · TIME: {result.scan_time_ms?.toFixed(0)}ms
+            </p>
+          )}
         </div>
       )}
 
-      {/* Recent Threats */}
-      {threats.length > 0 && (
-        <div style={{ marginBottom: 20 }}>
-          <p style={{ color: '#94a3b8', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
-            Recent Threats
-          </p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {threats.slice(0, 3).map(t => <ThreatCard key={t.id} threat={t} />)}
-          </div>
-        </div>
-      )}
+      {/* URL input */}
+      <div className="w-full max-w-2xl mb-16">
+        <UrlInput onScan={scan} loading={scanLoading} />
+      </div>
 
-      {/* Module Health Grid */}
-      {health && (
-        <div>
-          <p style={{ color: '#94a3b8', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>
-            Module Status
-          </p>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-            {Object.entries(health.modules).map(([mod, active]) => (
-              <div key={mod} style={{
-                background: '#111827', border: `1px solid ${active ? '#22c55e20' : '#f59e0b20'}`,
-                borderRadius: 8, padding: '8px 12px',
-                display: 'flex', alignItems: 'center', gap: 8,
-              }}>
-                <span style={{ fontSize: 14 }}>{MODULE_ICONS[mod] || '⚙️'}</span>
-                <div style={{ minWidth: 0 }}>
-                  <p style={{ color: '#f1f5f9', fontSize: 11, fontWeight: 600, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {mod.replace(/_/g, ' ')}
+      {/* Module health grid */}
+      {health?.modules && (
+        <div className="w-full max-w-5xl">
+          <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-white/30 mb-6 text-center">Detection Modules</p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {Object.entries(health.modules).map(([mod, active], i) => (
+              <div
+                key={mod}
+                className="relative group"
+              >
+                {/* Corner decorators */}
+                {i % 3 === 0 && <div className="absolute -inset-1 border-l border-t border-electricCyan/20 rounded-tl-2xl pointer-events-none" />}
+                {i % 3 === 1 && <div className="absolute -inset-1 border-b border-r border-electricMagenta/20 rounded-br-2xl pointer-events-none" />}
+                {i % 3 === 2 && <div className="absolute -inset-1 border-r border-t border-electricCyan/20 rounded-tr-2xl pointer-events-none" />}
+
+                <div className={`glass-panel p-6 rounded-xl ${i % 3 === 1 ? 'md:-translate-y-4' : ''}`}>
+                  {/* Hexagon icon */}
+                  <div
+                    className="w-11 h-11 hexagon-clip flex items-center justify-center mb-4 text-lg"
+                    style={{
+                      border: `1px solid ${active ? '#00f2ff' : '#ff00e5'}40`,
+                      background: `${active ? '#00f2ff' : '#ff00e5'}08`,
+                    }}
+                  >
+                    {MODULE_ICONS[mod] ?? '⚙️'}
+                  </div>
+                  <h3 className="text-sm font-bold mb-1 capitalize">{mod.replace(/_/g, ' ')}</h3>
+                  <p className="text-xs text-white/40 font-light leading-relaxed">
+                    {active
+                      ? `${mod.replace(/_/g, ' ')} detection module is fully operational.`
+                      : `API key required to enable ${mod.replace(/_/g, ' ')} scanning.`}
                   </p>
-                  <p style={{ fontSize: 10, margin: 0, color: active ? '#22c55e' : '#f59e0b' }}>
-                    {active ? 'ACTIVE' : 'NO KEY'}
-                  </p>
+                  <div className="mt-4 flex items-center gap-2">
+                    <span
+                      className="w-2 h-2 rounded-full"
+                      style={{
+                        background: active ? '#00f2ff' : '#ff00e5',
+                        animation: 'pulse 2s infinite',
+                        boxShadow: `0 0 4px ${active ? '#00f2ff' : '#ff00e5'}`,
+                      }}
+                    />
+                    <span className="text-[9px] font-mono uppercase tracking-[0.2em] opacity-40">
+                      {active ? 'ACTIVE_SENTINEL' : 'NO_KEY_DETECTED'}
+                    </span>
+                  </div>
                 </div>
               </div>
             ))}

@@ -1,22 +1,25 @@
 import React from 'react';
 import { AppError } from '../../types';
 
-export function ErrorBanner({ error, onRetry }: { error: AppError | string; onRetry?: () => void }) {
-  const message = typeof error === 'string' ? error : error.message;
-  const retryable = typeof error === 'string' ? true : error.retryable;
+interface Props {
+  error: AppError | { message: string; retryable?: boolean };
+  onRetry?: () => void;
+}
+
+export function ErrorBanner({ error, onRetry }: Props) {
   return (
-    <div style={{
-      background: '#ef444410', border: '1px solid #ef444430', borderRadius: 10,
-      padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12,
-    }}>
-      <span style={{ fontSize: 18, flexShrink: 0 }}>⚠️</span>
-      <p style={{ color: '#ef4444', fontSize: 13, margin: 0, flex: 1 }}>{message}</p>
-      {onRetry && retryable && (
-        <button onClick={onRetry} style={{
-          background: '#ef444420', color: '#ef4444', border: '1px solid #ef444440',
-          borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer', flexShrink: 0,
-        }}>
-          Retry
+    <div className="glass-panel border-l-2 border-electricMagenta rounded p-4 flex items-start gap-3">
+      <span className="text-electricMagenta text-lg shrink-0">⚠</span>
+      <div className="flex-1 min-w-0">
+        <p className="text-[10px] font-mono uppercase tracking-widest text-electricMagenta mb-1">System Error</p>
+        <p className="text-xs text-white/60 leading-relaxed">{error.message}</p>
+      </div>
+      {onRetry && (error as AppError).retryable !== false && (
+        <button
+          onClick={onRetry}
+          className="shrink-0 text-[10px] font-mono tracking-widest border border-electricCyan/40 text-electricCyan px-3 py-1 rounded hover:border-electricCyan/80 transition-colors"
+        >
+          RETRY
         </button>
       )}
     </div>

@@ -1,24 +1,37 @@
 import React from 'react';
-import { Verdict } from '../../types';
 
-const CONFIG = {
-  SAFE:    { label: 'SAFE',    bg: '#22c55e15', text: '#22c55e', border: '#22c55e30' },
-  CAUTION: { label: 'CAUTION', bg: '#f59e0b15', text: '#f59e0b', border: '#f59e0b30' },
-  DANGER:  { label: 'DANGER',  bg: '#f9731615', text: '#f97316', border: '#f9731630' },
-  BLOCKED: { label: 'BLOCKED', bg: '#ef444415', text: '#ef4444', border: '#ef444430' },
+interface Props {
+  level: string;
+  size?: 'sm' | 'md';
+}
+
+const CONFIG: Record<string, { label: string; color: string; bg: string; border: string }> = {
+  CRITICAL: { label: 'CRITICAL',   color: '#ef4444', bg: 'rgba(239,68,68,0.1)',   border: 'rgba(239,68,68,0.4)'   },
+  HIGH:     { label: 'HIGH',       color: '#f97316', bg: 'rgba(249,115,22,0.1)',  border: 'rgba(249,115,22,0.4)'  },
+  MEDIUM:   { label: 'MEDIUM',     color: '#f59e0b', bg: 'rgba(245,158,11,0.1)',  border: 'rgba(245,158,11,0.4)'  },
+  LOW:      { label: 'LOW',        color: '#00f2ff', bg: 'rgba(0,242,255,0.1)',   border: 'rgba(0,242,255,0.4)'   },
+  SAFE:     { label: 'SAFE',       color: '#00f2ff', bg: 'rgba(0,242,255,0.1)',   border: 'rgba(0,242,255,0.4)'   },
+  BLOCKED:  { label: 'BLOCKED',    color: '#ef4444', bg: 'rgba(239,68,68,0.15)',  border: 'rgba(239,68,68,0.5)'   },
+  CAUTION:  { label: 'CAUTION',    color: '#f59e0b', bg: 'rgba(245,158,11,0.1)',  border: 'rgba(245,158,11,0.4)'  },
+  DANGER:   { label: 'DANGER',     color: '#f97316', bg: 'rgba(249,115,22,0.1)',  border: 'rgba(249,115,22,0.4)'  },
 };
 
-export function RiskBadge({ verdict }: { verdict: Verdict }) {
-  const cfg = CONFIG[verdict] ?? CONFIG.CAUTION;
+export function RiskBadge({ level, size = 'sm' }: Props) {
+  const cfg = CONFIG[level?.toUpperCase()] ?? CONFIG.LOW;
+  const pad = size === 'sm' ? '2px 8px' : '4px 14px';
+  const fs = size === 'sm' ? 10 : 12;
   return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center',
-      padding: '4px 10px', borderRadius: 9999,
-      fontSize: 11, fontWeight: 700, letterSpacing: '0.8px',
-      textTransform: 'uppercase',
-      backgroundColor: cfg.bg, color: cfg.text,
-      border: `1px solid ${cfg.border}`,
-    }}>
+    <span
+      className="font-mono font-bold uppercase tracking-widest rounded-full"
+      style={{
+        padding: pad,
+        fontSize: fs,
+        color: cfg.color,
+        background: cfg.bg,
+        border: `1px solid ${cfg.border}`,
+        textShadow: `0 0 6px ${cfg.color}`,
+      }}
+    >
       {cfg.label}
     </span>
   );

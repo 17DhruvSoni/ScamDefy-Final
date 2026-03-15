@@ -1,17 +1,23 @@
 import React from 'react';
 
-export function EmptyState({
-  icon, title, description, action
-}: { icon: string; title: string; description: string; action?: React.ReactNode }) {
+interface Props {
+  icon?: string;
+  title: string;
+  description?: string;
+}
+
+export function EmptyState({ icon = '🛡️', title, description }: Props) {
   return (
-    <div style={{
-      display: 'flex', flexDirection: 'column', alignItems: 'center',
-      justifyContent: 'center', padding: '48px 24px', gap: 12, textAlign: 'center',
-    }}>
-      <span style={{ fontSize: 52 }}>{icon}</span>
-      <p style={{ color: '#f1f5f9', fontSize: 16, fontWeight: 600, margin: 0, fontFamily: 'Syne' }}>{title}</p>
-      <p style={{ color: '#94a3b8', fontSize: 13, margin: 0, maxWidth: 260, lineHeight: 1.6 }}>{description}</p>
-      {action}
+    <div className="flex flex-col items-center justify-center py-16 gap-4">
+      <div className="w-16 h-16 border border-electricCyan/30 hexagon-clip flex items-center justify-center text-2xl opacity-50">
+        {icon}
+      </div>
+      <div className="text-center">
+        <p className="text-xs font-mono tracking-[0.3em] uppercase text-white/40 mb-1">{title}</p>
+        {description && (
+          <p className="text-xs text-white/25 max-w-xs">{description}</p>
+        )}
+      </div>
     </div>
   );
 }

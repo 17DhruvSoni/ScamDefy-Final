@@ -1,48 +1,46 @@
 import React from 'react';
+import type { Screen } from '../../App';
 
-type Screen = 'dashboard' | 'webthreats' | 'calllogs' | 'settings';
+interface Props { active: Screen; onNav: (s: Screen) => void; }
 
 const TABS: Array<{ id: Screen; icon: string; label: string }> = [
-  { id: 'dashboard',  icon: '🏠', label: 'Home'      },
-  { id: 'webthreats', icon: '🛡️', label: 'Scanner'   },
-  { id: 'calllogs',   icon: '📞', label: 'Voice'     },
-  { id: 'settings',   icon: '⚙️', label: 'Settings'  },
+  { id: 'dashboard',  icon: '⬡', label: 'HOME'    },
+  { id: 'webthreats', icon: '◉', label: 'SCAN'    },
+  { id: 'calllogs',   icon: '◈', label: 'VOICE'   },
+  { id: 'settings',   icon: '⊛', label: 'CONFIG'  },
 ];
 
-export function BottomNav({ active, onNav }: { active: Screen; onNav: (s: Screen) => void }) {
+export function BottomNav({ active, onNav }: Props) {
   return (
-    <nav style={{
-      position: 'fixed', bottom: 0, left: 0, right: 0,
-      height: 60, background: '#0a0f1e',
-      borderTop: '1px solid #1e293b',
-      display: 'flex', alignItems: 'stretch',
-      zIndex: 100, maxWidth: 430, margin: '0 auto',
-    }}>
-      {TABS.map(tab => {
-        const isActive = active === tab.id;
-        return (
-          <button key={tab.id} onClick={() => onNav(tab.id)} style={{
-            flex: 1, display: 'flex', flexDirection: 'column',
-            alignItems: 'center', justifyContent: 'center', gap: 3,
-            background: 'none', border: 'none', cursor: 'pointer',
-            position: 'relative', paddingTop: isActive ? 0 : 2,
-            transition: 'all 0.15s',
-          }}>
-            {isActive && (
-              <div style={{
-                position: 'absolute', top: 0, left: '20%', right: '20%',
-                height: 2, background: '#6366f1', borderRadius: '0 0 3px 3px',
-              }} />
-            )}
-            <span style={{ fontSize: 18 }}>{tab.icon}</span>
-            {isActive && (
-              <span style={{ fontSize: 10, color: '#6366f1', fontWeight: 700, letterSpacing: '0.3px' }}>
+    <nav className="fixed bottom-12 left-0 w-full z-40 glass-panel border-t border-white/10">
+      <div className="flex">
+        {TABS.map(tab => {
+          const isActive = active === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => onNav(tab.id)}
+              className="flex-1 py-3 flex flex-col items-center gap-1 transition-all"
+            >
+              <span
+                className="text-lg leading-none transition-all"
+                style={{ color: isActive ? '#00f2ff' : 'rgba(255,255,255,0.3)', textShadow: isActive ? '0 0 8px #00f2ff' : 'none' }}
+              >
+                {tab.icon}
+              </span>
+              <span
+                className="text-[9px] font-mono tracking-widest uppercase"
+                style={{ color: isActive ? '#00f2ff' : 'rgba(255,255,255,0.25)' }}
+              >
                 {tab.label}
               </span>
-            )}
-          </button>
-        );
-      })}
+              {isActive && (
+                <div className="absolute bottom-0 h-px w-8 bg-electricCyan" style={{ boxShadow: '0 0 8px #00f2ff' }} />
+              )}
+            </button>
+          );
+        })}
+      </div>
     </nav>
   );
 }

@@ -52,5 +52,8 @@ async def clear_threats():
 
 @router.post("/threats")
 async def add_threat(threat: ThreatEntry):
+    # Skip duplicates by id
+    if any(t.id == threat.id for t in threats_db):
+        return {"message": "Already exists"}
     threats_db.append(threat)
     return {"message": "Threat added successfully"}

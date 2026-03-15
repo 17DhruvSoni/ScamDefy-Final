@@ -1,28 +1,44 @@
 import React from 'react';
 
+interface Props { active: string; onChange: (f: string) => void; }
+
 const FILTERS = [
-  { label: 'All', value: '' },
-  { label: 'Critical', value: 'CRITICAL' },
-  { label: 'High', value: 'HIGH' },
-  { label: 'Medium', value: 'MEDIUM' },
-  { label: 'Low', value: 'LOW' },
+  { value: '',         label: 'ALL' },
+  { value: 'CRITICAL', label: 'CRITICAL' },
+  { value: 'HIGH',     label: 'HIGH' },
+  { value: 'MEDIUM',   label: 'MEDIUM' },
+  { value: 'LOW',      label: 'LOW' },
 ];
 
-export function ThreatFilters({ active, onChange }: { active: string; onChange: (v: string) => void }) {
+const COLORS: Record<string, string> = {
+  CRITICAL: '#ef4444',
+  HIGH:     '#f97316',
+  MEDIUM:   '#f59e0b',
+  LOW:      '#00f2ff',
+  '':       '#94a3b8',
+};
+
+export function ThreatFilters({ active, onChange }: Props) {
   return (
-    <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
-      {FILTERS.map(f => (
-        <button key={f.value} onClick={() => onChange(f.value)} style={{
-          padding: '5px 13px', borderRadius: 9999, fontSize: 12, fontWeight: 600,
-          cursor: 'pointer', border: '1px solid', whiteSpace: 'nowrap',
-          borderColor: active === f.value ? '#6366f1' : '#1e293b',
-          background: active === f.value ? '#6366f115' : 'transparent',
-          color: active === f.value ? '#6366f1' : '#94a3b8',
-          transition: 'all 0.15s',
-        }}>
-          {f.label}
-        </button>
-      ))}
+    <div className="flex flex-wrap gap-2">
+      {FILTERS.map(f => {
+        const isActive = active === f.value;
+        const color = COLORS[f.value];
+        return (
+          <button
+            key={f.value}
+            onClick={() => onChange(f.value)}
+            className="text-[10px] font-mono tracking-[0.2em] uppercase rounded px-3 py-1.5 transition-all"
+            style={{
+              color: isActive ? '#0a0b0d' : color,
+              background: isActive ? color : 'transparent',
+              border: `1px solid ${isActive ? color : `${color}40`}`,
+            }}
+          >
+            {f.label}
+          </button>
+        );
+      })}
     </div>
   );
 }

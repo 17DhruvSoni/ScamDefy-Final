@@ -1,69 +1,70 @@
-import React from 'react';
-import { VoiceResult as VR } from '../../types';
 
-export function VoiceResult({ result }: { result: VR }) {
+import type { VoiceResult as VoiceResultType } from '../../types';
+
+interface Props { result: VoiceResultType }
+
+export function VoiceResult({ result }: Props) {
   const isSynthetic = result.verdict === 'SYNTHETIC';
-  const isReal = result.verdict === 'REAL';
-  const color = isSynthetic ? '#ef4444' : isReal ? '#22c55e' : '#f59e0b';
-  const icon = isSynthetic ? '🤖' : isReal ? '✅' : '❓';
+  const isUnknown = result.verdict === 'UNKNOWN' || result.verdict === 'UNCERTAIN';
+  const color = isSynthetic ? '#e879f9' : isUnknown ? '#f59e0b' : '#4ade80';
+  const label = isSynthetic ? 'AI VOICE DETECTED' : isUnknown ? 'INCONCLUSIVE' : 'AUTHENTIC VOICE CONFIRMED';
+  const glow = isSynthetic ? 'glow-red' : isUnknown ? 'glow-orange' : 'glow-cyan';
 
   return (
-    <div className="slide-up" style={{
-      background: '#111827', border: `1px solid ${color}30`,
-      borderRadius: 16, padding: 20,
-      boxShadow: `0 0 24px ${color}15`,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-        <span style={{ fontSize: 48, flexShrink: 0 }}>{icon}</span>
+    <div
+      className={`glass-panel rounded-2xl p-6 slide-up ${glow}`}
+      style={{ borderColor: `${color}30`, border: `1px solid ${color}30` }}
+    >
+      {/* Verdict */}
+      <div className="flex items-center gap-4 mb-5">
+        <div
+          className="w-16 h-16 hexagon-clip flex items-center justify-center shrink-0"
+          style={{ background: `${color}15`, border: `1px solid ${color}40` }}
+        >
+          <span className="text-2xl">{isSynthetic ? '🤖' : isUnknown ? '❓' : '✅'}</span>
+        </div>
         <div>
-          <p style={{ color, fontSize: 20, fontWeight: 800, margin: 0, fontFamily: 'Syne' }}>
-            {isSynthetic ? 'AI VOICE DETECTED' : isReal ? 'VOICE APPEARS REAL' : 'INCONCLUSIVE'}
-          </p>
-          <p style={{ color: '#94a3b8', fontSize: 13, margin: '4px 0 0' }}>
-            {result.confidence_pct}% confidence
+          <p className="text-[9px] font-mono uppercase tracking-[0.3em] opacity-50 mb-1">Verdict</p>
+          <p
+            className="text-xl font-black uppercase tracking-tighter leading-none"
+            style={{ color, textShadow: `0 0 12px ${color}` }}
+          >
+            {label}
           </p>
         </div>
       </div>
 
-      <div style={{ marginTop: 16 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>
-          <span>Confidence</span>
-          <span style={{ color, fontWeight: 700 }}>{result.confidence_pct}%</span>
+      {/* Confidence */}
+      <div className="mb-4">
+        <div className="flex justify-between text-[10px] font-mono mb-2">
+          <span className="text-white/40 uppercase tracking-widest">Confidence</span>
+          <span style={{ color }}>{result.confidence_pct?.toFixed(1)}%</span>
         </div>
-        <div style={{ height: 6, background: '#1e293b', borderRadius: 9999 }}>
-          <div style={{
-            height: '100%', width: `${result.confidence_pct}%`, background: color,
-            borderRadius: 9999, transition: 'width 0.6s ease-out',
-          }} />
+        <div className="h-1.5 rounded-full bg-white/5">
+          <div
+            className="h-1.5 rounded-full transition-all duration-700"
+            style={{
+              width: `${result.confidence_pct}%`,
+              background: color,
+              boxShadow: `0 0 8px ${color}`,
+            }}
+          />
         </div>
       </div>
 
-      {isSynthetic && (
-        <div style={{
-          background: '#ef444410', borderRadius: 8, padding: 12, marginTop: 14,
-          borderLeft: '3px solid #ef4444',
-        }}>
-          <p style={{ color: '#ef4444', fontSize: 13, margin: 0, fontWeight: 600 }}>⚠️ Hang up immediately.</p>
-          <p style={{ color: '#94a3b8', fontSize: 12, margin: '4px 0 0', lineHeight: 1.6 }}>
-            Do not share personal or financial information. This voice shows signs of AI generation or cloning.
-          </p>
-        </div>
-      )}
+      {/* Model status */}
+      <div className="flex items-center gap-2">
+        <div
+          className="w-1.5 h-1.5 rounded-full"
+          style={{ background: result.model_loaded ? '#00f2ff' : '#f59e0b', boxShadow: `0 0 4px ${result.model_loaded ? '#00f2ff' : '#f59e0b'}` }}
+        />
+        <p className="text-[10px] font-mono text-white/30 uppercase tracking-widest">
+          {result.model_loaded ? 'PRETRAINED_MODEL_ACTIVE' : 'HEURISTIC_MODE'}
+        </p>
+      </div>
 
       {result.warning && (
-        <p style={{
-          color: '#f59e0b', fontSize: 11, marginTop: 12,
-          background: '#f59e0b10', borderRadius: 6, padding: '6px 10px',
-        }}>
-          ⚠️ {result.warning}
-        </p>
-      )}
-
-      {!result.model_loaded && (
-        <p style={{ color: '#475569', fontSize: 11, marginTop: 8 }}>
-          Note: No trained weights found — results are indicative only.
-          Train the model with real/synthetic audio for production accuracy.
-        </p>
+        <p className="mt-3 text-[10px] font-mono text-electricMagenta/60 leading-relaxed">{result.warning}</p>
       )}
     </div>
   );

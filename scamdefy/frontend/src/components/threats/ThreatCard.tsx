@@ -1,51 +1,50 @@
 import React from 'react';
-import { ThreatEntry, RiskLevel } from '../../types';
+import { ThreatEntry } from '../../types';
+import { RiskBadge } from '../ui/RiskBadge';
 
-const RISK_COLORS: Record<RiskLevel, string> = {
-  LOW: '#22c55e', MEDIUM: '#f59e0b', HIGH: '#f97316', CRITICAL: '#ef4444',
-};
+interface Props { threat: ThreatEntry }
 
-export function ThreatCard({ threat }: { threat: ThreatEntry }) {
-  const color = RISK_COLORS[threat.risk_level as RiskLevel] ?? '#94a3b8';
-  const date = new Date(threat.timestamp);
-  const minsAgo = (Date.now() - date.getTime()) / 60000;
-  const rel = minsAgo < 60
-    ? `${Math.floor(minsAgo)}m ago`
-    : minsAgo < 1440
-    ? `${Math.floor(minsAgo / 60)}h ago`
-    : date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+export function ThreatCard({ threat }: Props) {
+  const ts = new Date(threat.timestamp);
+  const timeStr = ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const dateStr = ts.toLocaleDateString([], { month: 'short', day: 'numeric' });
 
-  const shortUrl = (() => {
-    try {
-      const { hostname, pathname } = new URL(threat.url);
-      const p = pathname.slice(0, 18);
-      return hostname + (p.length < pathname.length ? p + '…' : p);
-    } catch { return threat.url.slice(0, 38); }
-  })();
+  const scoreColor =
+    threat.score >= 80 ? '#ef4444' :
+    threat.score >= 60 ? '#f97316' :
+    threat.score >= 30 ? '#f59e0b' : '#00f2ff';
 
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px',
-      background: '#111827', borderRadius: 10, border: '1px solid #1e293b',
-      transition: 'background 0.15s', cursor: 'pointer',
-    }}
-      onMouseEnter={e => ((e.currentTarget as HTMLDivElement).style.background = '#1a2234')}
-      onMouseLeave={e => ((e.currentTarget as HTMLDivElement).style.background = '#111827')}
-    >
-      <div style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <p style={{
-          color: '#f1f5f9', fontSize: 12, margin: 0,
-          fontFamily: 'JetBrains Mono, monospace',
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }}>{shortUrl}</p>
-        <p style={{ color: '#94a3b8', fontSize: 11, margin: '2px 0 0' }}>
-          {threat.scam_type} · {threat.score}/100 · {threat.blocked ? '🚫 Blocked' : '⚠️ Warned'}
-        </p>
+    <div className="glass-panel rounded-xl p-4 flex items-center gap-4 hover:border-white/20 transition-all">
+      {/* Score */}
+      <div
+        className="shrink-0 w-12 h-12 rounded-lg flex flex-col items-center justify-center"
+        style={{ background: `${scoreColor}10`, border: `1px solid ${scoreColor}30` }}
+      >
+        <span className="text-lg font-black leading-none" style={{ color: scoreColor, textShadow: `0 0 8px ${scoreColor}` }}>
+          {Math.round(threat.score)}
+        </span>
+        <span className="text-[8px] font-mono text-white/30 tracking-wider">RISK</span>
       </div>
-      <div style={{ textAlign: 'right', flexShrink: 0 }}>
-        <p style={{ color: '#475569', fontSize: 10, margin: 0 }}>{rel}</p>
-        <p style={{ color, fontSize: 11, fontWeight: 700, margin: '2px 0 0' }}>{threat.risk_level}</p>
+
+      {/* Info */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-1">
+          <RiskBadge level={threat.risk_level} />
+          {threat.blocked && (
+            <span className="text-[9px] font-mono text-electricMagenta border border-electricMagenta/30 rounded px-1.5 py-0.5 tracking-widest">
+              BLOCKED
+            </span>
+          )}
+        </div>
+        <p className="text-xs font-mono text-white/60 truncate">{threat.url}</p>
+        <p className="text-[10px] font-mono text-white/30 mt-0.5">{threat.scam_type.replace(/_/g, ' ')}</p>
+      </div>
+
+      {/* Timestamp */}
+      <div className="shrink-0 text-right">
+        <p className="text-[10px] font-mono text-white/30">{dateStr}</p>
+        <p className="text-[10px] font-mono text-electricCyan/50">{timeStr}</p>
       </div>
     </div>
   );

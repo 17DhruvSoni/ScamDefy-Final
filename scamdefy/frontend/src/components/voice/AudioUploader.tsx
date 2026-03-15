@@ -1,64 +1,78 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef } from 'react';
 import { LoadingSpinner } from '../ui/LoadingSpinner';
 
-export function AudioUploader({
-  onFile, loading, progress
-}: { onFile: (f: File) => void; loading: boolean; progress: number }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [dragging, setDragging] = useState(false);
-  const [fileName, setFileName] = useState('');
+interface Props {
+  onFile: (file: File) => void;
+  loading: boolean;
+  progress: number;
+}
 
-  const handle = (file: File) => { setFileName(file.name); onFile(file); };
+export function AudioUploader({ onFile, loading, progress }: Props) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (file) onFile(file);
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) onFile(file);
+  };
+
+  if (loading) {
+    return (
+      <div className="glass-panel rounded-2xl border border-electricCyan/30 p-10 flex flex-col items-center gap-6">
+        {/* Spinning rings */}
+        <div className="relative w-24 h-24 flex items-center justify-center">
+          <div className="absolute inset-0 border border-electricCyan/20 rounded-full animate-spin-slow" />
+          <div className="absolute inset-3 border border-dashed border-electricMagenta/30 rounded-full animate-spin-reverse-slow" />
+          <LoadingSpinner size="md" />
+        </div>
+        <div className="text-center w-full max-w-xs">
+          <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-electricCyan mb-3">
+            ANALYZING NEURAL PATTERNS... {Math.round(progress)}%
+          </p>
+          <div className="h-1 bg-white/5 rounded-full">
+            <div
+              className="h-1 bg-electricCyan rounded-full transition-all duration-300"
+              style={{ width: `${progress}%`, boxShadow: '0 0 8px #00f2ff' }}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
-      onDragOver={e => { e.preventDefault(); setDragging(true); }}
-      onDragLeave={() => setDragging(false)}
-      onDrop={e => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) handle(f); }}
-      onClick={() => !loading && inputRef.current?.click()}
-      style={{
-        background: dragging ? '#6366f115' : '#111827',
-        border: `2px dashed ${dragging ? '#6366f1' : '#1e293b'}`,
-        borderRadius: 16, padding: '32px 20px',
-        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12,
-        cursor: loading ? 'not-allowed' : 'pointer',
-        transition: 'all 0.2s', textAlign: 'center',
-      }}>
-      <input ref={inputRef} type="file" accept=".wav,.mp3,.ogg,.m4a,.webm"
-        style={{ display: 'none' }}
-        onChange={e => { const f = e.target.files?.[0]; if (f) handle(f); }}
+      className="glass-panel rounded-2xl border border-dashed border-electricCyan/30 p-10 flex flex-col items-center gap-6 cursor-pointer hover:border-electricCyan/60 transition-all group"
+      onDrop={handleDrop}
+      onDragOver={e => e.preventDefault()}
+      onClick={() => inputRef.current?.click()}
+    >
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".wav,.mp3,.ogg,.m4a"
+        className="hidden"
+        onChange={handleChange}
       />
-      {loading ? (
-        <>
-          <LoadingSpinner size="lg" />
-          <p style={{ color: '#6366f1', fontSize: 14, margin: 0 }}>Analyzing voice... {progress}%</p>
-          <div style={{ width: '100%', height: 4, background: '#1e293b', borderRadius: 9999, overflow: 'hidden' }}>
-            <div style={{
-              height: '100%', width: `${progress}%`, background: '#6366f1',
-              transition: 'width 0.4s', borderRadius: 9999,
-            }} />
-          </div>
-        </>
-      ) : (
-        <>
-          <span style={{ fontSize: 44 }}>🎙️</span>
-          <div>
-            <p style={{ color: '#f1f5f9', fontSize: 15, fontWeight: 600, margin: 0, fontFamily: 'Syne' }}>
-              {fileName || 'Upload Voice Recording'}
-            </p>
-            <p style={{ color: '#94a3b8', fontSize: 12, margin: '6px 0 0', lineHeight: 1.6 }}>
-              Drop a WAV, MP3, OGG, or M4A file here<br />
-              Detects AI-generated or cloned voices
-            </p>
-          </div>
-          <button style={{
-            background: '#6366f1', color: '#fff', border: 'none',
-            borderRadius: 8, padding: '8px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-          }}>
-            Choose File
-          </button>
-        </>
-      )}
+      {/* Hexagon icon */}
+      <div className="w-20 h-20 border border-electricCyan hexagon-clip flex items-center justify-center animate-pulse-glow">
+        <svg className="w-8 h-8 text-electricCyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5"/>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5"/>
+        </svg>
+      </div>
+      <div className="text-center">
+        <p className="text-sm font-bold uppercase tracking-[0.3em] text-white/70 mb-2">DEPLOY AUDIO PAYLOAD</p>
+        <p className="text-[10px] font-mono text-white/30 mb-4">WAV · MP3 · OGG · M4A (max 10MB)</p>
+        <div className="inline-flex items-center gap-2 border border-electricCyan/50 text-electricCyan text-xs font-mono tracking-widest uppercase px-5 py-2 rounded-full group-hover:bg-electricCyan/10 transition-all">
+          SELECT FILE
+        </div>
+      </div>
     </div>
   );
 }

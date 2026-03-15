@@ -61,42 +61,26 @@ async def process_voice(audio: UploadFile = File(...), api_key: Optional[str] = 
 @router.get("/voice/health")
 async def health_check():
     """
-    Lightweight health check that runs random noise through the full pipeline.
-    Returns the pretrained model status and a verdict on the test audio.
+    Lightweight status check — does NOT run the full audio pipeline.
+    Returns ok if model is loaded or still loading, fail only on hard errors.
     """
-    try:
-        load_model()
-
-        # Generate 1 second of random audio at 22050 Hz
-        sr = 22050
-        samples = np.random.uniform(-1, 1, int(sr * 1.0))
-
-        buf = io.BytesIO()
-        sf.write(buf, samples, sr, format="WAV")
-        audio_bytes = buf.getvalue()
-
-        result = await analyze_audio(audio_bytes, "test_health.wav")
-
-        if result.get("verdict") in ["REAL", "SYNTHETIC", "UNCERTAIN"]:
-            return {
-                "status": "ok",
-                "pretrained_model": voice_service.PRETRAINED_MODEL_ID if voice_service.pretrained_available else None,
-                "pretrained_available": voice_service.pretrained_available,
-                "pretrained_error": voice_service._model_load_error if not voice_service.pretrained_available else None,
-                "model_loading": voice_service._model_loading,
-                "verdict": result.get("verdict"),
-                "confidence": result.get("confidence"),
-            }
-        else:
-            return {
-                "status": "fail",
-                "pretrained_available": voice_service.pretrained_available,
-                "reason": result.get("warning", "Unknown error"),
-            }
-
-    except Exception as exc:
+    if voice_service.pretrained_available:
+        return {
+            "status": "ok",
+            "reason": f"Model loaded: {voice_service.PRETRAINED_MODEL_ID}",
+        }
+    if voice_service._model_loading:
+        return {
+            "status": "ok",
+            "reason": "Model is downloading in background",
+        }
+    if voice_service._model_load_error:
         return {
             "status": "fail",
-            "pretrained_available": False,
-            "reason": str(exc),
+            "reason": voice_service._model_load_error,
         }
+    # Model hasn't started loading yet — still ok, will load on first request
+    return {
+        "status": "ok",
+        "reason": "Voice module ready (model will load on first use)",
+    }

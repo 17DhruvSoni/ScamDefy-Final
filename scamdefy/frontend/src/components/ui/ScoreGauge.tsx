@@ -1,39 +1,37 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 
-const getColor = (score: number) => {
-  if (score >= 80) return '#ef4444';
-  if (score >= 60) return '#f97316';
-  if (score >= 30) return '#f59e0b';
-  return '#22c55e';
-};
+interface Props { score: number; size?: number; }
 
-export function ScoreGauge({ score }: { score: number }) {
-  const [animated, setAnimated] = useState(0);
-  const size = 120, stroke = 10, r = (size - stroke) / 2;
-  const circ = 2 * Math.PI * r;
-  const offset = circ - (animated / 100) * circ;
-  const color = getColor(score);
-
-  useEffect(() => {
-    const t = setTimeout(() => setAnimated(score), 100);
-    return () => clearTimeout(t);
-  }, [score]);
+export function ScoreGauge({ score, size = 120 }: Props) {
+  const pct = Math.min(100, Math.max(0, score));
+  const r = (size - 16) / 2;
+  const circumference = 2 * Math.PI * r;
+  const dashOffset = circumference - (pct / 100) * circumference;
+  const color = score >= 80 ? '#ef4444' : score >= 60 ? '#f97316' : score >= 30 ? '#f59e0b' : '#00f2ff';
 
   return (
-    <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
-      <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
-        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#1e293b" strokeWidth={stroke} />
-        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={stroke}
-          strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
-          style={{ transition: 'stroke-dashoffset 0.5s ease-out' }} />
-      </svg>
-      <div style={{
-        position: 'absolute', inset: 0,
-        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-      }}>
-        <span style={{ fontSize: 28, fontWeight: 800, color, lineHeight: 1, fontFamily: 'Syne' }}>{score}</span>
-        <span style={{ fontSize: 10, color: '#475569' }}>/100</span>
-      </div>
-    </div>
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      {/* Track */}
+      <circle
+        cx={size / 2} cy={size / 2} r={r}
+        fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="8"
+      />
+      {/* Progress */}
+      <circle
+        cx={size / 2} cy={size / 2} r={r}
+        fill="none" stroke={color} strokeWidth="8"
+        strokeDasharray={circumference}
+        strokeDashoffset={dashOffset}
+        strokeLinecap="round"
+        transform={`rotate(-90 ${size / 2} ${size / 2})`}
+        style={{ transition: 'stroke-dashoffset 0.6s ease, stroke 0.3s' }}
+        filter={`drop-shadow(0 0 6px ${color})`}
+      />
+      {/* Score text */}
+      <text x="50%" y="50%" dominantBaseline="middle" textAnchor="middle"
+        fill={color} fontSize={size * 0.22} fontWeight="900" fontFamily="Space Grotesk, sans-serif">
+        {Math.round(score)}
+      </text>
+    </svg>
   );
 }
