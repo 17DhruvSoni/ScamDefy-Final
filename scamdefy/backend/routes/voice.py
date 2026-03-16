@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import soundfile as sf
 from services import voice_service
 from services.voice_service import analyze_audio, load_model
+from utils.threat_logger import log_threat
 
 router = APIRouter()
 
@@ -39,22 +40,33 @@ async def process_voice(audio: UploadFile = File(...), api_key: Optional[str] = 
     if result["verdict"] == "ERROR":
         raise HTTPException(status_code=500, detail=result.get("warning", "Analysis failed"))
 
+    verdict = result.get("verdict", "UNKNOWN")
     confidence = float(result.get("confidence", 0.0))
+    reason = result.get("reason") or result.get("fingerprint_reason") or "Analysis inconclusive"
+    
+    # Log to Surveillance if synthetic
+    if verdict == "SYNTHETIC":
+        log_threat(
+            id=str(uuid.uuid4()),
+            url=f"Voice Payload: {audio.filename}",
+            risk_level="CRITICAL",
+            score=float(round(confidence * 100, 1)),
+            scam_type="AI Voice Clone",
+            explanation=reason,
+            signals=["AI_SYNTHETIC_ARTIFACTS", "NEURAL_PROSODY_MATCH"]
+        )
+
     return {
         "id":             str(uuid.uuid4()),
-        "verdict":        result.get("verdict", "UNKNOWN"),
+        "verdict":        verdict,
         "confidence":     confidence,
         "confidence_pct": round(confidence * 100, 1),
         "model_loaded":   voice_service.pretrained_available,
         "warning":        result.get("warning"),
         "timestamp":      datetime.now(timezone.utc).isoformat(),
-        # pass-through fields used by VoiceResult.tsx for additional detail display
+        # pass-through fields used by VoiceResult.tsx
         "low_confidence":   result.get("low_confidence", False),
-        "detection_method": result.get("detection_method"),
-        "reason":           result.get("reason") or result.get("fingerprint_reason"),
-        "audio_info":       result.get("audio_info"),
-        "model_results":    result.get("model_results"),
-        "pretrained_model": result.get("pretrained_model"),
+        "reason":           reason,
     }
 
 

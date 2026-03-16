@@ -42,6 +42,7 @@ export interface VoiceResult {
   confidence: number;
   confidence_pct: number;
   model_loaded: boolean;
+  reason?: string;
   warning?: string;
   timestamp: string;
 }

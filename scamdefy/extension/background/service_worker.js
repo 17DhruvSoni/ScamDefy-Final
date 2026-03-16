@@ -3,6 +3,8 @@ import { handleMessage, injectScanCacheRef } from './messageRouter.js';
 import { runAllHealthChecks } from './healthCheck.js';
 import { validateConfig } from '../config/env.js';
 
+console.log('[ScamDefy] BACKGROUND SCRIPT LOADING...');
+
 const SCAN_TIMEOUT_MS = 8000;
 const CACHE_TTL_MS    = 30000;
 
@@ -12,7 +14,8 @@ const scanCache = new Map();
 injectScanCacheRef(scanCache);
 
 chrome.runtime.onInstalled.addListener(async () => {
-  console.log('[ScamDefy] Extension installed. Running setup...');
+  console.log('[ScamDefy] !!! onInstalled fired !!!');
+  console.log('[ScamDefy] webNavigation API available:', !!chrome.webNavigation);
   const configStatus = validateConfig();
   console.log('[ScamDefy] Config valid:', configStatus.valid, configStatus.missing);
   await runAllHealthChecks();
@@ -50,11 +53,16 @@ function shouldSkipUrl(url) {
 }
 
 chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
+  console.log('[ScamDefy] !!! onBeforeNavigate FIRE !!!', details.url);
   if (details.frameId !== 0) return;
   const url = details.url;
-  if (shouldSkipUrl(url) || url.includes('ui/warning.html')) return;
+  if (shouldSkipUrl(url) || url.includes('ui/warning.html')) {
+    console.log('[ScamDefy] skipping URL:', url);
+    return;
+  }
 
   const { whitelist = [], autoScan = true } = await chrome.storage.local.get(['whitelist', 'autoScan']);
+  console.log('[ScamDefy] autoScan:', autoScan, 'whitelisted:', whitelist.includes(url));
   if (!autoScan || whitelist.includes(url)) return;
 
   const cached = scanCache.get(url);
@@ -86,6 +94,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (!changeInfo.url && changeInfo.status !== 'complete') return;
   
   const url = tab.url;
+  console.log('[ScamDefy] 🔄 onUpdated:', changeInfo.status, url);
   if (!url || shouldSkipUrl(url) || url.includes('ui/warning.html')) return;
 
   const { whitelist = [], autoScan = true } = await chrome.storage.local.get(['whitelist', 'autoScan']);
@@ -127,6 +136,9 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   }
 });
 
+console.log('[ScamDefy] BACKGROUND LISTENERS REGISTERED');
+
+
 async function handleScanResult(tabId, url, scanResponse) {
   if (!scanResponse?.success || !scanResponse?.data) {
     console.warn('[ScamDefy] No scan data for:', url);
@@ -144,10 +156,18 @@ async function handleScanResult(tabId, url, scanResponse) {
 
   if (shouldBlock) {
     console.log(`[ScamDefy] 🚨 BLOCKING — score: ${result.score}`);
-    const encoded    = btoa(JSON.stringify(result));
+    
+    // Proactively block: UTF-8 safe base64 encoding using modern APIs
+    const jsonStr = JSON.stringify(result);
+    // Convert string to UTF-8 bytes, then bytes to a binary string compatible with btoa
+    const uint8      = new TextEncoder().encode(jsonStr);
+    const binString  = Array.from(uint8, (byte) => String.fromCharCode(byte)).join('');
+    const encoded    = btoa(binString);
+
     const warningUrl = chrome.runtime.getURL(
       `ui/warning.html?url=${encodeURIComponent(url)}&data=${encoded}`
     );
+    console.log('[ScamDefy] ⚡ Redirecting to:', warningUrl);
     try { 
         // Before updating, check if we are already on the warning page for this tab
         const currentTab = await chrome.tabs.get(tabId);

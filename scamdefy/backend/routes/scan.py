@@ -15,6 +15,7 @@ from services.domain_service import analyze as analyze_domain
 from services.risk_service import score as calculate_score
 from services.ai_service import generate_explanation
 from services.domain_age_service import get_domain_age
+from utils.threat_logger import log_threat
 
 
 def normalize_url(url: str) -> str:
@@ -275,6 +276,18 @@ async def analyze_message(req: MessageRequest):
     else:
         risk_level, scam_category = "SAFE", "Appears Legitimate"
         user_alert = "No strong scam signals detected in this message."
+
+    if total_score >= 15:
+        # Log to Surveillance if suspicious/high/critical
+        log_threat(
+            id=str(uuid.uuid4()),
+            url=f"Message Payload (Snippet: {req.text[:30]}...)",
+            risk_level=risk_level,
+            score=float(total_score),
+            scam_type=scam_category,
+            explanation=user_alert,
+            signals=[s["name"] for s in signals_triggered]
+        )
 
     return {
         "scan_type":         "message",

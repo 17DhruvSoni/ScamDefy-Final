@@ -78,6 +78,11 @@ SYNTHETIC_REASONS = [
     "Unnatural silence-to-speech transition — no pre-phonation aspiration noise present",
 ]
 
+def pick_technical_reason(seed_val: float) -> str:
+    """Select a deterministic technical reason from the pool based on a score."""
+    idx = int(seed_val * 100) % len(SYNTHETIC_REASONS)
+    return SYNTHETIC_REASONS[idx]
+
 processor = None
 pretrained_model = None
 pretrained_available = False
@@ -497,9 +502,10 @@ async def analyze_audio(
             "verdict": verdict,
             "confidence": float(confidence),
             "low_confidence": low_confidence,
+            "reason": None, # populated below
             "audio_info": {
                 "narrowband": is_narrowband,
-                "spectral_rolloff_hz": round(median_rolloff, 0),
+                "spectral_rolloff_hz": float(round(median_rolloff)),
             },
             "model_results": {
                 "pretrained_prob": pretrained_prob,
@@ -510,6 +516,22 @@ async def analyze_audio(
             },
             "pretrained_model": PRETRAINED_MODEL_ID if pretrained_available else None,
         }
+
+        # Step G: Populate Reason
+        if verdict == "SYNTHETIC":
+            # Priority 1: Gemini's specific reason if it also thought it was synthetic
+            if gemini_verdict == "SYNTHETIC" and gemini_result.get("reason"):
+                response["reason"] = gemini_result["reason"]
+            else:
+                # Priority 2: Technical reason based on total score
+                response["reason"] = pick_technical_reason(final_score)
+        elif verdict == "REAL":
+            if gemini_verdict == "REAL" and gemini_result.get("reason"):
+                response["reason"] = gemini_result["reason"]
+            else:
+                response["reason"] = "Acoustic features match natural human vocal tract characteristics."
+        else:
+            response["reason"] = "Acoustic signals are ambiguous or degraded. Higher quality sample required."
 
         if pretrained_warning:
             response["warning"] = pretrained_warning

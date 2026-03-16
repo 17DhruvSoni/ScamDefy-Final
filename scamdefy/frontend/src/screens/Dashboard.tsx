@@ -129,8 +129,12 @@ function OrbCanvas({ score, verdict }: { score: number | null; verdict: string |
 
 // ── Module health cards ───────────────────────────────────────────────────────
 const MODULE_ICONS: Record<string, string> = {
-  gemini: '🤖', google_safe_browsing: '🔍', ipqualityscore: '📊',
-  virustotal: '🦠', database: '🗄️', urlhaus: '🕷️', threatfox: '🦊', voice: '🎙️',
+  gsb_service: '🛡️',
+  urlhaus_service: '🕷️',
+  voice_cnn: '🎙️',
+  url_expander: '🔗',
+  database: '🗄️',
+  gemini: '🤖'
 };
 
 // ── Dashboard screen ──────────────────────────────────────────────────────────
@@ -204,18 +208,18 @@ export function Dashboard() {
       {health?.modules && (
         <div className="w-full max-w-5xl">
           <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-white/30 mb-6 text-center">Detection Modules</p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {Object.entries(health.modules).map(([mod, active], i) => (
               <div
                 key={mod}
                 className="relative group"
               >
-                {/* Corner decorators */}
-                {i % 3 === 0 && <div className="absolute -inset-1 border-l border-t border-electricCyan/20 rounded-tl-2xl pointer-events-none" />}
-                {i % 3 === 1 && <div className="absolute -inset-1 border-b border-r border-electricMagenta/20 rounded-br-2xl pointer-events-none" />}
-                {i % 3 === 2 && <div className="absolute -inset-1 border-r border-t border-electricCyan/20 rounded-tr-2xl pointer-events-none" />}
+                {/* Corner decorators shifted for 2-column layout */}
+                {i % 2 === 0 && <div className="absolute -inset-1 border-l border-t border-electricCyan/20 rounded-tl-2xl pointer-events-none" />}
+                {i % 2 === 1 && <div className="absolute -inset-1 border-r border-t border-electricMagenta/20 rounded-tr-2xl pointer-events-none" />}
+                {i > 1 && <div className="absolute -inset-1 border-b border-electricCyan/5 rounded-2xl pointer-events-none opacity-20" />}
 
-                <div className={`glass-panel p-6 rounded-xl ${i % 3 === 1 ? 'md:-translate-y-4' : ''}`}>
+                <div className="glass-panel p-6 rounded-xl h-full flex flex-col">
                   {/* Hexagon icon */}
                   <div
                     className="w-11 h-11 hexagon-clip flex items-center justify-center mb-4 text-lg"
@@ -232,7 +236,7 @@ export function Dashboard() {
                       ? `${mod.replace(/_/g, ' ')} detection module is fully operational.`
                       : `API key required to enable ${mod.replace(/_/g, ' ')} scanning.`}
                   </p>
-                  <div className="mt-4 flex items-center gap-2">
+                  <div className="mt-auto pt-4 flex items-center gap-2">
                     <span
                       className="w-2 h-2 rounded-full"
                       style={{

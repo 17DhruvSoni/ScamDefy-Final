@@ -45,7 +45,8 @@ export function useVoiceAnalysis() {
       setResult(data);
 
       if (data.verdict === 'SYNTHETIC') {
-        addToast('error', `🤖 AI voice detected — ${data.confidence_pct}% confidence`);
+        const reason = data.reason ? ` - ${data.reason}` : '';
+        addToast('error', `🤖 AI voice detected${reason} (${data.confidence_pct}% confidence)`);
       } else if (data.verdict === 'REAL') {
         addToast('success', `✓ Voice appears real — ${data.confidence_pct}% confidence`);
       } else {

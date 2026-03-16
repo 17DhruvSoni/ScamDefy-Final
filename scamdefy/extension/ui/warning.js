@@ -116,9 +116,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Primary: data is base64-encoded in the URL (set by service_worker.js)
   if (rawData) {
     try {
-      data = JSON.parse(atob(rawData));
+      // Modern UTF-8 safe base64 decoding
+      const binaryString = atob(rawData);
+      const bytes        = Uint8Array.from(binaryString, (char) => char.charCodeAt(0));
+      const jsonStr      = new TextDecoder().decode(bytes);
+      data = JSON.parse(jsonStr);
     } catch (e) {
-      console.warn('[ScamDefy] Could not decode data param, falling back to storage');
+      console.warn('[ScamDefy] Could not decode data param, falling back to storage', e);
     }
   }
 

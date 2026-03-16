@@ -105,7 +105,7 @@ export default function App() {
               <div className="w-3.5 h-3.5 bg-electricCyan hexagon-clip" />
             </div>
             <h1 className="text-xl font-bold tracking-tighter uppercase italic">
-              ScamDefy <span className="text-electricCyan">v3.0</span>
+              ScamDefy
             </h1>
           </button>
 

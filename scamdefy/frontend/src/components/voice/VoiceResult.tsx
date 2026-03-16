@@ -12,7 +12,7 @@ export function VoiceResult({ result }: Props) {
 
   return (
     <div
-      className={`glass-panel rounded-2xl p-6 slide-up ${glow}`}
+      className={`glass-panel rounded-2xl p-6 slide-up ${glow} flex flex-col`}
       style={{ borderColor: `${color}30`, border: `1px solid ${color}30` }}
     >
       {/* Verdict */}
@@ -53,19 +53,18 @@ export function VoiceResult({ result }: Props) {
       </div>
 
       {/* Model status */}
-      <div className="flex items-center gap-2">
-        <div
-          className="w-1.5 h-1.5 rounded-full"
-          style={{ background: result.model_loaded ? '#00f2ff' : '#f59e0b', boxShadow: `0 0 4px ${result.model_loaded ? '#00f2ff' : '#f59e0b'}` }}
-        />
-        <p className="text-[10px] font-mono text-white/30 uppercase tracking-widest">
-          {result.model_loaded ? 'PRETRAINED_MODEL_ACTIVE' : 'HEURISTIC_MODE'}
-        </p>
+      <div className="flex items-center justify-between mt-auto pt-4 border-t border-white/5">
+        <div className="flex items-center gap-2">
+          <div
+            className="w-1.5 h-1.5 rounded-full"
+            style={{ background: result.model_loaded ? '#00f2ff' : '#f59e0b', boxShadow: `0 0 4px ${result.model_loaded ? '#00f2ff' : '#f59e0b'}` }}
+          />
+          <p className="text-[10px] font-mono text-white/30 uppercase tracking-widest">
+            {result.model_loaded ? 'PRETRAINED_MODEL_ACTIVE' : 'HEURISTIC_MODE'}
+          </p>
+        </div>
+        <p className="text-[9px] font-mono text-white/20 uppercase">SENTINEL_V4</p>
       </div>
-
-      {result.warning && (
-        <p className="mt-3 text-[10px] font-mono text-electricMagenta/60 leading-relaxed">{result.warning}</p>
-      )}
     </div>
   );
 }

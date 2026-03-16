@@ -119,7 +119,7 @@ export function Settings() {
         <p className="text-[10px] font-mono uppercase tracking-[0.3em] text-white/30 mb-4">▹ SYSTEM MANIFEST</p>
         <div className="space-y-2">
           {[
-            ['VERSION',    'ScamDefy v3.0.0'],
+            ['VERSION',    'ScamDefy'],
             ['CODENAME',   'SENTINEL'],
             ['STACK',      'FastAPI · React · Gemini AI'],
             ['BUILD_TYPE', 'PRODUCTION'],

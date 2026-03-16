@@ -123,8 +123,16 @@ async function loadCurrentPageStatus(force = false) {
         return;
       }
     } else {
-      // KEY FIX: clear chrome.storage cache on force rescan
-      await new Promise(resolve => chrome.storage.local.remove([`scan_${currentUrl}`], resolve));
+      // KEY FIX: clear chrome.storage cache AND whitelist for this URL on force rescan
+      await new Promise(resolve => {
+        chrome.storage.local.get(['whitelist'], res => {
+          const whitelist = (res.whitelist || []).filter(u => u !== currentUrl);
+          chrome.storage.local.set({ 
+            whitelist,
+            [`scan_${currentUrl}`]: null 
+          }, resolve);
+        });
+      });
     }
 
     document.getElementById('verdictBadge').textContent = "SCANNING...";
@@ -435,6 +443,27 @@ function setupSettings() {
       const orig = btn.textContent;
       btn.textContent = '✓ Saved!';
       setTimeout(() => { btn.textContent = orig; }, 1500);
+    });
+  });
+
+  document.getElementById('btn-reset-protection')?.addEventListener('click', () => {
+    if (!confirm('Clear all whitelisted sites? This will re-enable blocking for sites you previously allowed.')) return;
+    
+    chrome.storage.local.set({ whitelist: [] }, () => {
+        const btn = document.getElementById('btn-reset-protection');
+        const orig = btn.textContent;
+        btn.textContent = '✓ Whitelist Cleared!';
+        btn.style.borderColor = '#22c55e55';
+        btn.style.color = '#22c55e';
+        
+        setTimeout(() => { 
+            btn.textContent = orig; 
+            btn.style.borderColor = '#ef444455';
+            btn.style.color = '#ef4444';
+        }, 2000);
+        
+        // Also refresh status to reflect change
+        loadCurrentPageStatus();
     });
   });
 }
