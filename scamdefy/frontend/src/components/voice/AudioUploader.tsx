@@ -5,9 +5,10 @@ interface Props {
   onFile: (file: File) => void;
   loading: boolean;
   progress: number;
+  selectedFile?: File | null;
 }
 
-export function AudioUploader({ onFile, loading, progress }: Props) {
+export function AudioUploader({ onFile, loading, progress, selectedFile }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleDrop = (e: React.DragEvent) => {
@@ -19,6 +20,13 @@ export function AudioUploader({ onFile, loading, progress }: Props) {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) onFile(file);
+    // Reset input so same file can be re-selected
+    e.target.value = '';
+  };
+
+  const handleSelectClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    inputRef.current?.click();
   };
 
   if (loading) {
@@ -45,6 +53,46 @@ export function AudioUploader({ onFile, loading, progress }: Props) {
     );
   }
 
+  // If a file is already selected, show the file name + a "select new file" button
+  if (selectedFile) {
+    return (
+      <div
+        className="glass-panel rounded-2xl border border-electricCyan/30 p-8 flex flex-col items-center gap-4"
+        onDrop={handleDrop}
+        onDragOver={e => e.preventDefault()}
+      >
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".wav,.mp3,.ogg,.m4a"
+          className="hidden"
+          onChange={handleChange}
+        />
+        {/* File icon */}
+        <div className="w-14 h-14 hexagon-clip flex items-center justify-center border border-electricCyan/40"
+          style={{ background: 'rgba(0,242,255,0.08)' }}>
+          <span className="text-2xl">🎵</span>
+        </div>
+        {/* File name */}
+        <div className="text-center">
+          <p className="text-[9px] font-mono uppercase tracking-widest text-white/30 mb-1">Loaded Payload</p>
+          <p className="text-sm font-mono text-electricCyan truncate max-w-xs">{selectedFile.name}</p>
+          <p className="text-[10px] font-mono text-white/20 mt-0.5">
+            {(selectedFile.size / 1024).toFixed(0)} KB
+          </p>
+        </div>
+        {/* Change file button */}
+        <button
+          onClick={handleSelectClick}
+          className="inline-flex items-center gap-2 border border-electricCyan/50 text-electricCyan text-xs font-mono tracking-widest uppercase px-5 py-2 rounded-full hover:bg-electricCyan/10 transition-all"
+        >
+          ↺ SELECT NEW FILE
+        </button>
+      </div>
+    );
+  }
+
+  // Default empty state
   return (
     <div
       className="glass-panel rounded-2xl border border-dashed border-electricCyan/30 p-10 flex flex-col items-center gap-6 cursor-pointer hover:border-electricCyan/60 transition-all group"

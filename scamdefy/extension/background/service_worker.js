@@ -5,8 +5,12 @@ import { validateConfig } from '../config/env.js';
 
 console.log('[ScamDefy] BACKGROUND SCRIPT LOADING...');
 
-const SCAN_TIMEOUT_MS = 8000;
-const CACHE_TTL_MS    = 30000;
+const SCAN_TIMEOUT_MS  = 8000;
+const CACHE_TTL_MS     = 30000;
+// Show full warning popup for risk score strictly above this value
+const POPUP_THRESHOLD  = 50;
+// Show caution banner above this value (but at or below POPUP_THRESHOLD)
+const BANNER_THRESHOLD = 30;
 
 const scanCache = new Map();
 
@@ -52,6 +56,7 @@ function shouldSkipUrl(url) {
   );
 }
 
+// ─── onBeforeNavigate: earliest possible interception point ─────────────────
 chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   console.log('[ScamDefy] !!! onBeforeNavigate FIRE !!!', details.url);
   if (details.frameId !== 0) return;
@@ -89,10 +94,12 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   }
 }, { url: [{ schemes: ['http', 'https'] }] });
 
+// ─── onUpdated: catch navigations that onBeforeNavigate may have missed ──────
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-  // We check as soon as we have a URL, don't wait for 'complete' for blocking
+  // Only act when the tab commits a new URL OR finishes loading
+  // NOTE: Must use || not && here — we want to fire on EITHER condition
   if (!changeInfo.url && changeInfo.status !== 'complete') return;
-  
+
   const url = tab.url;
   console.log('[ScamDefy] 🔄 onUpdated:', changeInfo.status, url);
   if (!url || shouldSkipUrl(url) || url.includes('ui/warning.html')) return;
@@ -103,29 +110,29 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   const cached = scanCache.get(url);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
     if (cached.inProgress) {
-        // If still scanning from onBeforeNavigate, we'll let that handler finish
-        return;
+      // Still scanning from onBeforeNavigate — let that handler finish
+      return;
     }
     console.log('[ScamDefy] ✓ onUpdated check (cached) for:', url);
     await handleScanResult(tabId, url, cached.result);
     return;
   }
 
-  // If we reach here, onBeforeNavigate might have been skipped or failed
+  // onBeforeNavigate may have been skipped or failed — scan now
   console.log('[ScamDefy] 🔍 Scanning in onUpdated:', url);
   scanCache.set(url, { timestamp: Date.now(), inProgress: true });
 
   try {
-    const scanPromise = handleMessage({ type: 'SCAN_URL', payload: { url } }, null);
+    const scanPromise    = handleMessage({ type: 'SCAN_URL', payload: { url } }, null);
     const timeoutPromise = new Promise(resolve =>
       setTimeout(() => resolve({ timedOut: true }), SCAN_TIMEOUT_MS)
     );
     const outcome = await Promise.race([scanPromise, timeoutPromise]);
-    
-    if (outcome.timedOut) { 
-        console.warn('[ScamDefy] Scan timed out for:', url);
-        scanCache.delete(url);
-        return; 
+
+    if (outcome.timedOut) {
+      console.warn('[ScamDefy] Scan timed out for:', url);
+      scanCache.delete(url);
+      return;
     }
 
     scanCache.set(url, { result: outcome, timestamp: Date.now(), inProgress: false });
@@ -139,84 +146,37 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 console.log('[ScamDefy] BACKGROUND LISTENERS REGISTERED');
 
 
+// ─── Main decision function ──────────────────────────────────────────────────
 async function handleScanResult(tabId, url, scanResponse) {
   if (!scanResponse?.success || !scanResponse?.data) {
     console.warn('[ScamDefy] No scan data for:', url);
     return;
   }
   const result = scanResponse.data;
+  const score  = Math.round(result.score ?? 0);
 
+  // Persist result so popup UI can read it
   chrome.storage.local.set({ [`scan_${url}`]: result });
 
   const { blockDangerous = true, showBanner = true } = await chrome.storage.local.get(
     ['blockDangerous', 'showBanner']
   );
 
-  const shouldBlock = (blockDangerous && result.should_block === true) || result.score >= 60;
+  // ── Show full warning popup for score > 75 ──────────────────────────────
+  const shouldShowPopup = (blockDangerous && result.should_block === true) || score > POPUP_THRESHOLD;
 
-  if (shouldBlock) {
-    console.log(`[ScamDefy] 🚨 BLOCKING — score: ${result.score}`);
-    
-    // Proactively block: UTF-8 safe base64 encoding using modern APIs
-    const jsonStr = JSON.stringify(result);
-    // Convert string to UTF-8 bytes, then bytes to a binary string compatible with btoa
-    const uint8      = new TextEncoder().encode(jsonStr);
-    const binString  = Array.from(uint8, (byte) => String.fromCharCode(byte)).join('');
-    const encoded    = btoa(binString);
+  if (shouldShowPopup) {
+    console.log(`[ScamDefy] 🚨 POPUP WARNING — score: ${score} (threshold: >${POPUP_THRESHOLD})`);
+    await showWarningPage(tabId, url, result);
 
-    const warningUrl = chrome.runtime.getURL(
-      `ui/warning.html?url=${encodeURIComponent(url)}&data=${encoded}`
-    );
-    console.log('[ScamDefy] ⚡ Redirecting to:', warningUrl);
-    try { 
-        // Before updating, check if we are already on the warning page for this tab
-        const currentTab = await chrome.tabs.get(tabId);
-        if (currentTab.url.includes('ui/warning.html')) return;
-        
-        await chrome.tabs.update(tabId, { url: warningUrl }); 
-    }
-    catch (err) { console.warn('[ScamDefy] Could not redirect tab:', err.message); }
+  // ── Show caution banner for score 31–75 ──────────────────────────────────
+  } else if (score > BANNER_THRESHOLD && showBanner) {
+    console.log(`[ScamDefy] ⚠️ Caution banner — score: ${score}`);
+    await showCautionBanner(tabId, url, result);
 
-    try {
-      await chrome.action.setBadgeText({ text: '!', tabId });
-      await chrome.action.setBadgeBackgroundColor({ color: '#ef4444', tabId });
-    } catch (_) {}
-
-    try {
-      const notificationId = `threat_${tabId}_${Date.now()}`;
-      chrome.notifications.create(notificationId, {
-        type:    'basic',
-        iconUrl: chrome.runtime.getURL('icons/icon48.png'),
-        title:   `🚨 Threat Blocked — ${result.scam_type || result.verdict}`,
-        message: `Risk Score: ${result.score}/100\n${(result.flags || []).slice(0, 2).join(', ') || 'Multiple threat signals detected'}`,
-        priority: 2,
-      });
-    } catch (_) {}
-
-  } else if (result.score >= 30 && showBanner) {
-    console.log(`[ScamDefy] ⚠️ Caution — score: ${result.score}`);
-    
-    // Only inject banner if page is actually loaded or loading
-    // We wait for status complete for banner to ensure DOM is ready
-    const tabCheck = await chrome.tabs.get(tabId);
-    if (tabCheck.status === 'complete') {
-        injectBanner(tabId, { verdict: result.verdict, score: result.score, url, color: '#f59e0b' });
-    } else {
-        // If not loaded yet, wait for completion to inject banner
-        const listener = (tid, cInfo) => {
-            if (tid === tabId && cInfo.status === 'complete') {
-                injectBanner(tabId, { verdict: result.verdict, score: result.score, url, color: '#f59e0b' });
-                chrome.tabs.onUpdated.removeListener(listener);
-            }
-        };
-        chrome.tabs.onUpdated.addListener(listener);
-    }
-    try {
-      await chrome.action.setBadgeText({ text: '?', tabId });
-      await chrome.action.setBadgeBackgroundColor({ color: '#f59e0b', tabId });
-    } catch (_) {}
+  // ── Safe ──────────────────────────────────────────────────────────────────
   } else {
-    console.log(`[ScamDefy] ✅ Safe — score: ${result.score}`);
+    console.log(`[ScamDefy] ✅ Safe — score: ${score}`);
     try {
       await chrome.action.setBadgeText({ text: '✓', tabId });
       await chrome.action.setBadgeBackgroundColor({ color: '#22c55e', tabId });
@@ -224,6 +184,84 @@ async function handleScanResult(tabId, url, scanResponse) {
   }
 }
 
+// ─── Redirect to full warning/block page ────────────────────────────────────
+async function showWarningPage(tabId, url, result) {
+  // Encode result as UTF-8-safe base64
+  const uint8      = new TextEncoder().encode(JSON.stringify(result));
+  const binString  = Array.from(uint8, b => String.fromCharCode(b)).join('');
+  const encoded    = btoa(binString);
+  const warningUrl = chrome.runtime.getURL(
+    `ui/warning.html?url=${encodeURIComponent(url)}&data=${encoded}`
+  );
+  console.log('[ScamDefy] ⚡ Redirecting tab to warning page:', warningUrl);
+
+  // Retry up to 3 times — tab may still be navigating when we first try
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      if (tab.url && tab.url.includes('ui/warning.html')) {
+        console.log('[ScamDefy] Already on warning page, skipping redirect');
+        return;
+      }
+      await chrome.tabs.update(tabId, { url: warningUrl });
+      console.log(`[ScamDefy] ✅ Redirect succeeded on attempt ${attempt + 1}`);
+      break;
+    } catch (err) {
+      if (attempt < 2) {
+        console.warn(`[ScamDefy] Redirect attempt ${attempt + 1} failed, retrying…`, err.message);
+        await new Promise(r => setTimeout(r, 300));
+      } else {
+        console.error('[ScamDefy] Could not redirect tab after 3 attempts:', err.message);
+      }
+    }
+  }
+
+  // Badge
+  try {
+    await chrome.action.setBadgeText({ text: '!', tabId });
+    await chrome.action.setBadgeBackgroundColor({ color: '#ef4444', tabId });
+  } catch (_) {}
+
+  // Desktop notification
+  try {
+    chrome.notifications.create(`threat_${tabId}_${Date.now()}`, {
+      type:     'basic',
+      iconUrl:  chrome.runtime.getURL('icons/icon48.png'),
+      title:    `🚨 Threat Detected — ${result.scam_type || result.verdict}`,
+      message:  `Risk Score: ${Math.round(result.score)}/100\n${(result.flags || []).slice(0, 2).join(', ') || 'Multiple threat signals detected'}`,
+      priority: 2,
+    });
+  } catch (_) {}
+}
+
+// ─── Inject caution banner (score 31–75) ────────────────────────────────────
+async function showCautionBanner(tabId, url, result) {
+  const score = Math.round(result.score ?? 0);
+  const args  = { verdict: result.verdict, score, url, color: '#f59e0b' };
+
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (tab.status === 'complete') {
+      injectBanner(tabId, args);
+    } else {
+      // Wait for page load to finish, then inject
+      const listener = (tid, cInfo) => {
+        if (tid === tabId && cInfo.status === 'complete') {
+          injectBanner(tabId, args);
+          chrome.tabs.onUpdated.removeListener(listener);
+        }
+      };
+      chrome.tabs.onUpdated.addListener(listener);
+    }
+  } catch (_) {}
+
+  try {
+    await chrome.action.setBadgeText({ text: '?', tabId });
+    await chrome.action.setBadgeBackgroundColor({ color: '#f59e0b', tabId });
+  } catch (_) {}
+}
+
+// ─── Content-script banner injection ────────────────────────────────────────
 async function injectBanner(tabId, args) {
   try {
     await chrome.scripting.executeScript({ target: { tabId }, files: ['content/warningBanner.js'] });

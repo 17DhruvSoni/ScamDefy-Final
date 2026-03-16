@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { Dashboard } from './screens/Dashboard';
 import { WebThreats } from './screens/WebThreats';
 import { CallLogs } from './screens/CallLogs';
@@ -71,6 +71,15 @@ function ThreatStreamFooter() {
 export default function App() {
   const [screen, setScreen] = useState<Screen>('dashboard');
   const [isDesktop, setIsDesktop] = useState(window.innerWidth >= 768);
+  // Track which screens have been visited — they are mounted once and kept alive.
+  // This avoids mounting all screens at startup (slow) while still preserving state
+  // when navigating away and back.
+  const [visited, setVisited] = useState<Set<Screen>>(new Set(['dashboard']));
+
+  const navigate = (s: Screen) => {
+    setScreen(s);
+    setVisited(prev => { const n = new Set(prev); n.add(s); return n; });
+  };
 
   useEffect(() => {
     const handler = () => setIsDesktop(window.innerWidth >= 768);
@@ -78,15 +87,6 @@ export default function App() {
     return () => window.removeEventListener('resize', handler);
   }, []);
 
-  const renderScreen = useCallback(() => {
-    switch (screen) {
-      case 'dashboard':  return <Dashboard />;
-      case 'webthreats': return <WebThreats />;
-      case 'calllogs':   return <CallLogs />;
-      case 'settings':   return <Settings />;
-      default:           return <Dashboard />;
-    }
-  }, [screen]);
 
   return (
     <div className="min-h-screen bg-charcoal text-white selection:bg-electricCyan/30">
@@ -98,7 +98,7 @@ export default function App() {
         <header className="fixed top-0 left-0 w-full z-50 px-6 py-4 flex justify-between items-center mix-blend-lighten glass-panel border-b border-white/5">
           {/* Logo */}
           <button
-            onClick={() => setScreen('dashboard')}
+            onClick={() => navigate('dashboard')}
             className="flex items-center space-x-3 cursor-pointer"
           >
             <div className="w-9 h-9 border-2 border-electricCyan hexagon-clip flex items-center justify-center animate-pulse">
@@ -116,7 +116,7 @@ export default function App() {
               return (
                 <button
                   key={link.id}
-                  onClick={() => setScreen(link.id)}
+                  onClick={() => navigate(link.id)}
                   className={`transition-colors ${
                     active
                       ? 'text-electricMagenta border-b border-electricMagenta pb-0.5'
@@ -137,16 +137,18 @@ export default function App() {
         </header>
       )}
 
-      {/* Main content */}
+      {/* Lazy-mount: only mount a screen after first visit, then keep it alive to
+          preserve voice results, selected file, message text, etc. across navigation. */}
       <main className={`relative z-10 ${isDesktop ? 'pt-20 pb-16' : 'pb-28'}`}>
-        <div key={screen} className="screen-enter">
-          {renderScreen()}
-        </div>
+        {visited.has('dashboard')  && <div style={{ display: screen === 'dashboard'  ? 'block' : 'none' }}><Dashboard /></div>}
+        {visited.has('webthreats') && <div style={{ display: screen === 'webthreats' ? 'block' : 'none' }}><WebThreats /></div>}
+        {visited.has('calllogs')   && <div style={{ display: screen === 'calllogs'   ? 'block' : 'none' }}><CallLogs /></div>}
+        {visited.has('settings')   && <div style={{ display: screen === 'settings'   ? 'block' : 'none' }}><Settings /></div>}
       </main>
 
       {/* Mobile bottom nav */}
       {!isDesktop && (
-        <BottomNav active={screen} onNav={setScreen} />
+        <BottomNav active={screen} onNav={navigate} />
       )}
 
       {/* Threat stream footer — always visible */}

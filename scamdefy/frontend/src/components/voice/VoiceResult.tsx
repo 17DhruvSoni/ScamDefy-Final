@@ -52,6 +52,19 @@ export function VoiceResult({ result }: Props) {
         </div>
       </div>
 
+      {/* Reason — shown when synthetic or unknown */}
+      {result.reason && (isSynthetic || isUnknown) && (
+        <div
+          className="mb-4 rounded-lg px-4 py-3"
+          style={{ background: `${color}08`, border: `1px solid ${color}20` }}
+        >
+          <p className="text-[9px] font-mono uppercase tracking-[0.25em] text-white/30 mb-1">Detection Reason</p>
+          <p className="text-xs font-mono leading-relaxed" style={{ color: `${color}cc` }}>
+            {result.reason}
+          </p>
+        </div>
+      )}
+
       {/* Model status */}
       <div className="flex items-center justify-between mt-auto pt-4 border-t border-white/5">
         <div className="flex items-center gap-2">

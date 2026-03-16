@@ -231,51 +231,60 @@ async def analyze_message(req: MessageRequest):
     text_lower = req.text.strip().lower()
 
     SCAM_SIGNALS = [
-        (r"kyc",                           "KYC Urgency",           35, "HIGH"),
-        (r"verif",                         "Verification Lure",     20, "MEDIUM"),
-        (r"account.{0,20}block",           "Account Threat",        35, "HIGH"),
-        (r"click here",                    "Phishing CTA",          25, "HIGH"),
-        (r"prize|won|winner",              "Prize Scam",            35, "HIGH"),
-        (r"lottery",                       "Lottery Scam",          35, "HIGH"),
-        (r"\botp\b",                       "OTP Request",           45, "CRITICAL"),
-        (r"\bpin\b",                       "PIN Request",           45, "CRITICAL"),
-        (r"password",                      "Credential Request",    40, "HIGH"),
-        (r"urgent|immediately",            "Urgency Tactic",        20, "MEDIUM"),
-        (r"congratulations",               "Prize Lure",            20, "MEDIUM"),
-        (r"\bfree\b",                      "Free Offer Lure",       10, "LOW"),
-        (r"bank|banking",                  "Bank Impersonation",    25, "MEDIUM"),
-        (r"refund",                        "Refund Scam",           25, "HIGH"),
-        (r"suspend|blocked",               "Suspension Threat",     30, "HIGH"),
-        (r"cvv|card number",               "Card Data Request",     50, "CRITICAL"),
-        (r"aadhaar|aadhar|pan card",       "Document Request",      30, "HIGH"),
-        (r"reset.{0,10}password",          "Password Reset Lure",   35, "HIGH"),
-        (r"invest|profit|returns",         "Investment Scam",       30, "HIGH"),
-        (r"delivery.{0,15}fail",           "Delivery Scam",         25, "MEDIUM"),
-        (r"gift card|itunes|amazon card",  "Gift Card Scam",        40, "HIGH"),
-        (r"remote access|teamviewer|anydesk", "Remote Access Scam", 50, "CRITICAL"),
+        (r"kyc",                              "KYC Urgency",           35, "HIGH",     "Claims KYC verification is required — a common pretext to steal identity documents."),
+        (r"verif",                            "Verification Lure",     20, "MEDIUM",   "Requests identity verification — scammers use this to harvest personal data."),
+        (r"account.{0,20}block",              "Account Threat",        35, "HIGH",     "Threatens account suspension — a scare tactic to force immediate action without thinking."),
+        (r"click here",                       "Phishing CTA",          25, "HIGH",     "'Click here' link detected — a classic phishing redirect to a fake login page."),
+        (r"prize|won|winner",                 "Prize Scam",            35, "HIGH",     "Claims you've won a prize — you cannot win a contest you didn't enter."),
+        (r"lottery",                          "Lottery Scam",          35, "HIGH",     "References a lottery — unsolicited lottery wins are universally fraudulent."),
+        (r"\botp\b",                          "OTP Request",           45, "CRITICAL", "Requests your OTP — legitimate organizations will NEVER ask for one-time passwords."),
+        (r"\bpin\b",                          "PIN Request",           45, "CRITICAL", "Asks for a PIN — no real bank, government, or service needs your PIN via message."),
+        (r"password",                         "Credential Request",    40, "HIGH",     "Asks for your password — this is a definitive red flag of credential theft."),
+        (r"urgent|immediately",               "Urgency Tactic",        20, "MEDIUM",   "Uses urgency language — scammers create time pressure to prevent rational thinking."),
+        (r"congratulations",                  "Prize Lure",            20, "MEDIUM",   "Congratulatory message for an unexpected reward — a manipulation tactic."),
+        (r"\bfree\b",                         "Free Offer Lure",       10, "LOW",      "Offers something for free — used to lower your guard before requesting personal info."),
+        (r"bank|banking",                     "Bank Impersonation",    25, "MEDIUM",   "Mentions banking — likely impersonating your bank to steal account credentials."),
+        (r"refund",                           "Refund Scam",           25, "HIGH",     "Promises a refund — refund scams trick victims into sharing payment details."),
+        (r"suspend|blocked",                  "Suspension Threat",     30, "HIGH",     "Threatens suspension — designed to alarm you into handing over access credentials."),
+        (r"cvv|card number",                  "Card Data Request",     50, "CRITICAL", "Requests card/CVV number — no legitimate entity ever needs this via a message."),
+        (r"aadhaar|aadhar|pan card",          "Document Request",      30, "HIGH",     "Requests government ID (Aadhaar/PAN) — used for identity theft and financial fraud."),
+        (r"reset.{0,10}password",             "Password Reset Lure",   35, "HIGH",     "Prompts a password reset you didn't request — may be a phishing or account takeover attempt."),
+        (r"invest|profit|returns",            "Investment Scam",       30, "HIGH",     "Promotes investment returns — high-return promises are a hallmark of financial scams."),
+        (r"delivery.{0,15}fail",              "Delivery Scam",         25, "MEDIUM",   "Claims a failed delivery — designed to get you to click a link and enter personal details."),
+        (r"gift card|itunes|amazon card",     "Gift Card Scam",        40, "HIGH",     "Requests gift cards as payment — this is a well-known government/tech support scam method."),
+        (r"remote access|teamviewer|anydesk", "Remote Access Scam",    50, "CRITICAL", "Requests remote access to your device — gives scammers full control of your system."),
     ]
 
     signals_triggered = []
     total_score = 0
-    for pattern, name, points, severity in SCAM_SIGNALS:
+    for pattern, name, points, severity, specific_reason in SCAM_SIGNALS:
         if _re.search(pattern, text_lower):
-            signals_triggered.append({"name": name, "signal": pattern, "points": points, "severity": severity})
+            signals_triggered.append({
+                "name": name,
+                "signal": pattern,
+                "points": points,
+                "severity": severity,
+                "reason": specific_reason,
+            })
             total_score += points
 
     total_score = min(total_score, 100)
 
+    # Build a specific, concatenated reason from all triggered signals
+    if signals_triggered:
+        reason_parts = [s["reason"] for s in signals_triggered[:4]]  # top 4 reasons max
+        user_alert = " | ".join(reason_parts)
+    else:
+        user_alert = "No scam signals detected."
+
     if total_score >= 70:
         risk_level, scam_category = "CRITICAL", "Phishing / Social Engineering"
-        user_alert = "⚠️ Strong scam indicators detected. Do NOT click any links or share personal information."
     elif total_score >= 40:
         risk_level, scam_category = "HIGH", "Suspicious Message"
-        user_alert = "This message contains suspicious patterns. Verify the sender through official channels only."
     elif total_score >= 15:
         risk_level, scam_category = "SUSPICIOUS", "Potentially Suspicious"
-        user_alert = "Some suspicious characteristics found. Exercise caution before responding."
     else:
         risk_level, scam_category = "SAFE", "Appears Legitimate"
-        user_alert = "No strong scam signals detected in this message."
 
     if total_score >= 15:
         # Log to Surveillance if suspicious/high/critical

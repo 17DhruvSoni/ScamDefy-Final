@@ -12,6 +12,7 @@ const MSG_TICK_MS   = 80;
 
 export function CallLogs() {
   const { result, loading, error, progress, analyze } = useVoiceAnalysis();
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [msgText, setMsgText] = useState('');
   const [msgLoading, setMsgLoading] = useState(false);
   const [msgProgress, setMsgProgress] = useState(0);
@@ -72,7 +73,12 @@ export function CallLogs() {
 
       {/* Upload zone */}
       <div className="mb-6">
-        <AudioUploader onFile={analyze} loading={loading} progress={progress} />
+        <AudioUploader
+          onFile={(file) => { setSelectedFile(file); analyze(file); }}
+          loading={loading}
+          progress={progress}
+          selectedFile={selectedFile}
+        />
       </div>
 
       {/* Error */}
@@ -180,8 +186,9 @@ export function CallLogs() {
               boxShadow: `0 0 20px ${msgRiskColor(msgResult.risk_level)}10`,
             }}
           >
+            {/* Header: risk level + category */}
             <div className="flex items-start justify-between mb-4">
-              <div>
+              <div className="flex items-center gap-2">
                 <span
                   className="text-[10px] font-mono font-bold uppercase tracking-widest rounded-full px-3 py-1"
                   style={{
@@ -192,22 +199,52 @@ export function CallLogs() {
                 >
                   {msgResult.risk_level}
                 </span>
+                <span className="text-[9px] font-mono text-white/30 uppercase tracking-widest">
+                  {msgResult.scam_category}
+                </span>
               </div>
-              <p className="text-[10px] font-mono text-white/30">{msgResult.scam_category}</p>
+              <span className="text-[10px] font-mono tabular-nums" style={{ color: msgRiskColor(msgResult.risk_level) }}>
+                {msgResult.risk_score}/100
+              </span>
             </div>
-            <p className="text-sm text-white/70 leading-relaxed mb-4">{msgResult.user_alert}</p>
-            {msgResult.signals_triggered?.length > 0 && (
-              <div className="border-t border-white/5 pt-4">
-                <p className="text-[9px] font-mono uppercase tracking-widest text-white/25 mb-2">Signals Detected</p>
-                <div className="flex flex-wrap gap-2">
-                  {msgResult.signals_triggered.slice(0, 5).map((s, i) => (
-                    <span key={i} className="text-[10px] font-mono border border-white/10 rounded px-2 py-0.5 text-white/40">
-                      {s.name ?? (s as any).signal} +{s.points}
-                    </span>
-                  ))}
-                </div>
+
+            {/* Risk score bar */}
+            <div className="mb-4">
+              <div className="flex justify-between text-[10px] font-mono mb-2">
+                <span className="text-white/40 uppercase tracking-widest">Risk Score</span>
+                <span style={{ color: msgRiskColor(msgResult.risk_level) }}>{msgResult.risk_score}%</span>
               </div>
-            )}
+              <div className="h-1.5 rounded-full bg-white/5">
+                <div
+                  className="h-1.5 rounded-full transition-all duration-700"
+                  style={{
+                    width: `${msgResult.risk_score}%`,
+                    background: msgRiskColor(msgResult.risk_level),
+                    boxShadow: `0 0 8px ${msgRiskColor(msgResult.risk_level)}`,
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Detection Reason */}
+            <div
+              className="mb-4 rounded-lg px-4 py-3"
+              style={{
+                background: `${msgRiskColor(msgResult.risk_level)}08`,
+                border: `1px solid ${msgRiskColor(msgResult.risk_level)}20`,
+              }}
+            >
+              <p className="text-[9px] font-mono uppercase tracking-[0.25em] text-white/30 mb-1">Detection Reason</p>
+              <p className="text-xs font-mono leading-relaxed" style={{ color: `${msgRiskColor(msgResult.risk_level)}cc` }}>
+                {msgResult.user_alert}
+              </p>
+            </div>
+
+
+            {/* Recommendation */}
+            <p className="text-[10px] font-mono text-white/25 border-t border-white/5 pt-3 leading-relaxed">
+              ⚡ {msgResult.recommendation}
+            </p>
           </div>
         )}
       </div>
