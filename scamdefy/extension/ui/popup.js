@@ -104,6 +104,31 @@ async function loadCurrentPageStatus(force = false) {
     const currentUrl = tabs[0].url;
     urlEl.textContent = currentUrl;
 
+    // Special handling for the Warning/Block page
+    if (currentUrl && currentUrl.includes('ui/warning.html')) {
+      try {
+        const params = new URLSearchParams(new URL(currentUrl).search);
+        const targetUrl = params.get('url');
+        const rawData = params.get('data');
+        
+        if (targetUrl) urlEl.textContent = targetUrl;
+
+        if (rawData) {
+          const binaryString = atob(rawData);
+          const bytes = Uint8Array.from(binaryString, (char) => char.charCodeAt(0));
+          const jsonStr = new TextDecoder().decode(bytes);
+          const data = JSON.parse(jsonStr);
+          
+          updateColors(data.score, data.verdict);
+          if (explanationEl) explanationEl.innerHTML = buildExplanationHTML(data);
+          renderRiskPills(data);
+          return;
+        }
+      } catch (err) {
+        console.warn('[ScamDefy] Error parsing warning page data in popup:', err);
+      }
+    }
+
     if (!currentUrl || currentUrl.startsWith('chrome://') ||
         currentUrl.startsWith('about:') || currentUrl.startsWith('chrome-extension://')) {
       updateColors(0, 'SAFE');

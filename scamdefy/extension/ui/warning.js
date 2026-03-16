@@ -177,12 +177,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnGoBack = document.getElementById('btnGoBack');
   if (btnGoBack) {
     btnGoBack.addEventListener('click', () => {
-      if (window.history.length > 2) {
-        window.history.back();
-      } else {
-        // No history to go back to — close the tab
-        chrome.tabs.getCurrent(tab => tab && chrome.tabs.remove(tab.id));
-      }
+      // Force close the tab
+      chrome.tabs.getCurrent(tab => {
+        if (tab) {
+          chrome.tabs.remove(tab.id);
+        } else {
+          // Fallback if not a real tab (e.g. some popup window context)
+          window.close();
+        }
+      });
     });
   }
 
