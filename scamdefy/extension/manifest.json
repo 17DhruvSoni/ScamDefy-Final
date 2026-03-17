@@ -23,7 +23,7 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content/linkScanner.js", "content/hoverPreview.js"],
+      "js": ["content/linkScanner.js", "content/hoverPreview.js", "content/syncSettings.js"],
       "run_at": "document_idle"
     }
   ],

@@ -1,38 +1,13 @@
 import { useState, useCallback, useRef } from 'react';
-import type { ScanResult, AppError, ThreatEntry } from '../types';
+import type { ScanResult, AppError } from '../types';
 import { scanUrl } from '../api/scanService';
-import { apiClient } from '../api/client';
 import { useAppStore } from '../store/appStore';
+import { logThreat, scanResultToThreat } from '../utils/threatLogger';
 
-const THREATS_STORAGE_KEY = 'scamdefy_threats';
-const BUFFER_MS = 8000; // 8-second progress buffer
+const BUFFER_MS = 8000;
 const TICK_MS   = 100;
 
-function saveThreatLocally(threat: ThreatEntry) {
-  try {
-    const existing: ThreatEntry[] = JSON.parse(localStorage.getItem(THREATS_STORAGE_KEY) || '[]');
-    const updated = [threat, ...existing].slice(0, 100);
-    localStorage.setItem(THREATS_STORAGE_KEY, JSON.stringify(updated));
-  } catch {}
-}
-
-function scanResultToThreat(result: ScanResult): ThreatEntry | null {
-  if (result.score < 30) return null;
-  return {
-    id: result.id,
-    url: result.url,
-    risk_level: result.risk_level,
-    score: result.score,
-    scam_type: result.scam_type,
-    explanation: result.explanation || '',
-    signals: result.signals.map((s: any) => typeof s === 'string' ? s : s.name) || [],
-    user_proceeded: false,
-    blocked: result.should_block,
-    timestamp: result.timestamp,
-    breakdown: result.breakdown,
-    domain_age: result.domain_age,
-  };
-}
+// functions moved to ../utils/threatLogger.ts
 
 export function useUrlScan() {
   const [result, setResult] = useState<ScanResult | null>(null);
@@ -72,10 +47,7 @@ export function useUrlScan() {
 
       // Persist threat if score >= 30
       const threat = scanResultToThreat(data);
-      if (threat) {
-        saveThreatLocally(threat);
-        apiClient.post('/api/threats', threat).catch(() => {});
-      }
+      if (threat) logThreat(threat);
 
       if (data.should_block) {
         addToast('error', `🚫 Blocked: ${data.scam_type} (${data.score}/100)`);

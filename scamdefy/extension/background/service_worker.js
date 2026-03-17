@@ -7,10 +7,16 @@ console.log('[ScamDefy] BACKGROUND SCRIPT LOADING...');
 
 const SCAN_TIMEOUT_MS  = 8000;
 const CACHE_TTL_MS     = 30000;
-// Show full warning popup for risk score strictly above this value
-const POPUP_THRESHOLD  = 50;
-// Show caution banner above this value (but at or below POPUP_THRESHOLD)
-const BANNER_THRESHOLD = 30;
+// Default thresholds (will be overridden by storage)
+let POPUP_THRESHOLD  = 50;
+let BANNER_THRESHOLD = 30;
+
+// Load initial thresholds from storage
+chrome.storage.local.get(['popupThreshold', 'bannerThreshold'], (res) => {
+  if (res.popupThreshold)  POPUP_THRESHOLD  = res.popupThreshold;
+  if (res.bannerThreshold) BANNER_THRESHOLD = res.bannerThreshold;
+  console.log(`[ScamDefy] Thresholds initialized: POPUP=${POPUP_THRESHOLD}, BANNER=${BANNER_THRESHOLD}`);
+});
 
 const scanCache = new Map();
 
@@ -38,11 +44,39 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'SYNC_SETTINGS') {
+    handleSyncSettings(message.payload).then(sendResponse);
+    return true;
+  }
   handleMessage(message, sender)
     .then(sendResponse)
     .catch(err => sendResponse({ success: false, error: err.toString() }));
   return true;
 });
+
+async function handleSyncSettings(settings) {
+  const { protectionLevel } = settings;
+  const mapping = {
+    conservative: { popup: 80, banner: 50 },
+    balanced:     { popup: 40, banner: 30 }, // User requested > 40 for block
+    aggressive:   { popup: 20, banner: 1  }
+  };
+  
+  const thresholds = mapping[protectionLevel] || mapping.balanced;
+  POPUP_THRESHOLD  = thresholds.popup;
+  BANNER_THRESHOLD = thresholds.banner;
+  
+  console.log(`[ScamDefy] Protocol updated to ${protectionLevel}: POPUP=${POPUP_THRESHOLD}, BANNER=${BANNER_THRESHOLD}`);
+  
+  await chrome.storage.local.set({
+    protectionLevel,
+    popupThreshold:  thresholds.popup,
+    bannerThreshold: thresholds.banner,
+    backendUrl:      settings.backendUrl
+  });
+  
+  return { success: true };
+}
 
 function shouldSkipUrl(url) {
   if (!url) return true;
@@ -152,21 +186,17 @@ async function handleScanResult(tabId, url, scanResponse) {
     console.warn('[ScamDefy] No scan data for:', url);
     return;
   }
-  const result = scanResponse.data;
-  const score  = Math.round(result.score ?? 0);
-
-  // Persist result so popup UI can read it
-  chrome.storage.local.set({ [`scan_${url}`]: result });
-
   const { blockDangerous = true, showBanner = true } = await chrome.storage.local.get(
     ['blockDangerous', 'showBanner']
   );
 
-  // ── Show full warning popup for score > 75 ──────────────────────────────
-  const shouldShowPopup = (blockDangerous && result.should_block === true) || score > POPUP_THRESHOLD;
+  // ── Logic Fix: Force block only if it's a confirmed authoritative threat (GSB/URLhaus)
+  // or if the heuristic risk score strictly exceeds the protocol's threshold.
+  const isAuthoritative = result.authoritative_hit === true;
+  const shouldShowPopup = (blockDangerous && isAuthoritative) || score > POPUP_THRESHOLD;
 
   if (shouldShowPopup) {
-    console.log(`[ScamDefy] 🚨 POPUP WARNING — score: ${score} (threshold: >${POPUP_THRESHOLD})`);
+    console.log(`[ScamDefy] 🚨 POPUP WARNING — score: ${score} (threshold: >${POPUP_THRESHOLD}, authoritative: ${isAuthoritative})`);
     await showWarningPage(tabId, url, result);
 
   // ── Show caution banner for score 31–75 ──────────────────────────────────

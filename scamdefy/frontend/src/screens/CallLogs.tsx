@@ -8,6 +8,7 @@ import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { analyzeMessage } from '../api/reportService';
 import { scanUrl } from '../api/scanService';
 import type { MessageAnalysis, ScanResult } from '../types';
+import { logThreat, messageResultToThreat } from '../utils/threatLogger';
 
 type VoiceTab = 'upload' | 'live';
 
@@ -61,6 +62,9 @@ export function CallLogs() {
       setMsgProgress(100);
       await new Promise(res => setTimeout(res, 400));
       setMsgResult(data);
+      
+      const threat = messageResultToThreat(data, msgText.trim());
+      if (threat) logThreat(threat);
     } catch (err: any) {
       if (msgIntervalRef.current) clearInterval(msgIntervalRef.current);
       setMsgError(err.message || 'Message analysis failed');

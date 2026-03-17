@@ -9,21 +9,21 @@ const LEVELS = [
     label: 'Conservative',
     icon: '🟡',
     code: 'PROTOCOL_ALPHA',
-    desc: 'Block only confirmed threats (score ≥ 80). Minimal false positives.',
+    desc: 'Block at ≥ 80, warn at ≥ 50. Minimal false positives.',
   },
   {
     id: 'balanced' as const,
     label: 'Balanced',
     icon: '🟠',
     code: 'PROTOCOL_BETA',
-    desc: 'Block at ≥ 80, warn at ≥ 30. Recommended for most operators.',
+    desc: 'Block at ≥ 40, warn at ≥ 30. Recommended for most operators.',
   },
   {
     id: 'aggressive' as const,
     label: 'Aggressive',
     icon: '🔴',
     code: 'PROTOCOL_OMEGA',
-    desc: 'Maximum sensitivity. Warn at any non-zero risk signal.',
+    desc: 'Max sensitivity. Block at ≥ 20, warn at any risk signal.',
   },
 ];
 
@@ -35,6 +35,10 @@ export function Settings() {
 
   const handleSaveProtection = () => {
     save({ protectionLevel });
+    // Dispatch custom event for extension content script to detect
+    window.dispatchEvent(new CustomEvent('scamdefy-settings-updated', { 
+      detail: { protectionLevel } 
+    }));
     addToast('success', `Defense protocol set to ${protectionLevel.toUpperCase()}`);
   };
 

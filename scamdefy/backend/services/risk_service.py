@@ -193,11 +193,28 @@ def score(
     if is_authoritative_threat:
         final_score = 100.0
     else:
-        # Floors for suspicious heuristic combinations
-        if impersonation_score > 0 and age_score > 50:
-            final_score = max(final_score, 75.0)
-        elif impersonation_score > 0:
-            final_score = max(final_score, 60.0)
+        # Dynamic bonuses for suspicious combinations instead of hard floors
+        # This creates more varied scores (e.g. 64.5, 72.8)
+        bonus = 0.0
+        
+        # Scenario A: Brand Impersonation + High Risk TLD or Anomalies
+        if impersonation_score > 0:
+            if url_pattern_score > 50: bonus += 15.0
+            elif url_pattern_score > 30: bonus += 10.0
+            
+            # Scenario B: Brand Impersonation + New Domain
+            if age_score > 50: bonus += 20.0
+            elif age_score > 20: bonus += 10.0
+        
+        # Scenario C: Just a very suspicious URL pattern
+        elif url_pattern_score > 70:
+            bonus += 15.0
+            
+        final_score = min(100.0, weighted_sum + bonus)
+        
+        # Low floor to ensure detected threats are visible as at least CAUTION
+        if (impersonation_score > 0 or age_score > 40 or url_pattern_score > 40) and final_score < 30:
+            final_score = 30.0
     
     # 3. Normalization logic: Scale components so they sum to final_score
     # This ensures the breakdown shown to the user is intuitive.

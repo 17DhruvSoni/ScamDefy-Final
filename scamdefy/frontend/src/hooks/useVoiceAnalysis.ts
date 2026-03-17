@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import type { VoiceResult } from '../types';
 import { analyzeVoice } from '../api/voiceService';
 import { useAppStore } from '../store/appStore';
+import { logThreat, voiceResultToThreat } from '../utils/threatLogger';
 
 // Buffer duration in ms — progress bar fills over this period before result shows
 const BUFFER_MS = 7000; // ~7 seconds
@@ -43,6 +44,9 @@ export function useVoiceAnalysis() {
       await new Promise(res => setTimeout(res, 400));
 
       setResult(data);
+
+      const threat = voiceResultToThreat(data);
+      if (threat) logThreat(threat);
 
       if (data.verdict === 'SYNTHETIC') {
         const reason = data.reason ? ` - ${data.reason}` : '';
